@@ -406,6 +406,7 @@ class ConfluenceAPI:
 
         self.session = ConfluenceSession(
             session,
+            properties=self.properties,
             api_url=self.properties.api_url,
             domain=self.properties.domain,
             base_path=self.properties.base_path,
@@ -435,6 +436,7 @@ class ConfluenceSession:
 
     session: requests.Session
     api_url: str
+    api_version: ConfluenceVersion
     site: ConfluenceSiteMetadata
 
     _space_id_to_key: dict[str, str]
@@ -444,6 +446,7 @@ class ConfluenceSession:
         self,
         session: requests.Session,
         *,
+        properties: ConfluenceConnectionProperties,
         api_url: Optional[str],
         domain: Optional[str],
         base_path: Optional[str],
@@ -452,6 +455,10 @@ class ConfluenceSession:
         self.session = session
         self._space_id_to_key = {}
         self._space_key_to_id = {}
+
+        # Detect and set API version based on deployment type
+        self.api_version = self._detect_api_version(properties.deployment_type)
+        LOGGER.info("Using Confluence REST API %s", self.api_version.value)
 
         if api_url:
             self.api_url = api_url
@@ -498,6 +505,29 @@ class ConfluenceSession:
     def close(self) -> None:
         self.session.close()
         self.session = requests.Session()
+
+    def _detect_api_version(self, deployment_type: Optional[str]) -> ConfluenceVersion:
+        """
+        Detects which Confluence REST API version to use based on deployment type.
+
+        The logic is as follows:
+        - If deployment_type is "datacenter" or "server": use VERSION_1 (rest/api)
+          because these versions may not support v2 endpoints.
+        - If deployment_type is "cloud": use VERSION_2 (api/v2)
+          as Cloud supports v2 endpoints.
+        - If deployment_type is None (not specified): default to VERSION_2 (api/v2)
+          for backward compatibility and to prefer the newer API when possible.
+
+        :param deployment_type: The Confluence deployment type (cloud, datacenter, server, or None).
+        :returns: The appropriate ConfluenceVersion to use.
+        """
+        if deployment_type in ("datacenter", "server"):
+            return ConfluenceVersion.VERSION_1
+        elif deployment_type == "cloud":
+            return ConfluenceVersion.VERSION_2
+        else:
+            # Default to VERSION_2 when deployment_type is None
+            return ConfluenceVersion.VERSION_2
 
     def _build_url(
         self,
