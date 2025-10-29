@@ -33,6 +33,7 @@ class Arguments(argparse.Namespace):
     username: Optional[str]
     api_key: Optional[str]
     space: Optional[str]
+    deployment_type: Optional[str]
     loglevel: str
     ignore_invalid_url: bool
     heading_anchors: bool
@@ -114,6 +115,12 @@ def get_parser() -> argparse.ArgumentParser:
         "-s",
         "--space",
         help="Confluence space key for pages to be published. If omitted, will default to user space.",
+    )
+    parser.add_argument(
+        "--deployment-type",
+        dest="deployment_type",
+        choices=["cloud", "datacenter", "server"],
+        help="Confluence deployment type. Use 'datacenter' or 'server' for on-premise installations, 'cloud' for Confluence Cloud (default: 'cloud').",
     )
     parser.add_argument(
         "-l",
@@ -324,6 +331,7 @@ def main() -> None:
                 user_name=args.username,
                 api_key=args.api_key,
                 space_key=args.space,
+                deployment_type=args.deployment_type,
                 headers=args.headers,
             )
         except ArgumentError as e:

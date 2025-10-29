@@ -7,7 +7,7 @@ Copyright 2022-2025, Levente Hunyadi
 """
 
 import os
-from typing import Optional, overload
+from typing import Literal, Optional, overload
 
 
 class ArgumentError(ValueError):
@@ -58,6 +58,27 @@ def _validate_base_path(base_path: Optional[str]) -> Optional[str]:
     return base_path
 
 
+@overload
+def _validate_deployment_type(deployment_type: str) -> Literal["cloud", "datacenter", "server"]: ...
+
+
+@overload
+def _validate_deployment_type(deployment_type: Optional[str]) -> Optional[Literal["cloud", "datacenter", "server"]]: ...
+
+
+def _validate_deployment_type(deployment_type: Optional[str]) -> Optional[Literal["cloud", "datacenter", "server"]]:
+    if deployment_type is None:
+        return None
+
+    deployment_type_lower = deployment_type.lower()
+    if deployment_type_lower not in ("cloud", "datacenter", "server"):
+        raise ArgumentError(
+            f"Invalid deployment type '{deployment_type}'; must be one of: 'cloud', 'datacenter', 'server'"
+        )
+
+    return deployment_type_lower  # type: ignore
+
+
 class ConfluenceSiteProperties:
     domain: str
     base_path: str
@@ -90,6 +111,7 @@ class ConfluenceConnectionProperties:
     :param api_url: Confluence API URL. Required for scoped tokens.
     :param user_name: Confluence user name.
     :param api_key: Confluence API key.
+    :param deployment_type: Confluence deployment type (cloud, datacenter, or server).
     :param headers: Additional HTTP headers to pass to Confluence REST API calls.
     """
 
@@ -99,6 +121,7 @@ class ConfluenceConnectionProperties:
     api_url: Optional[str]
     user_name: Optional[str]
     api_key: str
+    deployment_type: Optional[Literal["cloud", "datacenter", "server"]]
     headers: Optional[dict[str, str]]
 
     def __init__(
@@ -110,6 +133,7 @@ class ConfluenceConnectionProperties:
         user_name: Optional[str] = None,
         api_key: Optional[str] = None,
         space_key: Optional[str] = None,
+        deployment_type: Optional[str] = None,
         headers: Optional[dict[str, str]] = None,
     ) -> None:
         opt_api_url = api_url or os.getenv("CONFLUENCE_API_URL")
@@ -118,6 +142,7 @@ class ConfluenceConnectionProperties:
         opt_space_key = space_key or os.getenv("CONFLUENCE_SPACE_KEY")
         opt_user_name = user_name or os.getenv("CONFLUENCE_USER_NAME")
         opt_api_key = api_key or os.getenv("CONFLUENCE_API_KEY")
+        opt_deployment_type = deployment_type or os.getenv("CONFLUENCE_DEPLOYMENT_TYPE")
 
         if not opt_api_key:
             raise ArgumentError("Confluence API key not specified")
@@ -132,4 +157,5 @@ class ConfluenceConnectionProperties:
         self.space_key = opt_space_key
         self.user_name = opt_user_name
         self.api_key = opt_api_key
+        self.deployment_type = _validate_deployment_type(opt_deployment_type)
         self.headers = headers
