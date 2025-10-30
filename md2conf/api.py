@@ -464,8 +464,21 @@ class ConfluenceSession:
             self.api_url = api_url
 
             if not domain or not base_path:
-                data = self._get(ConfluenceVersion.VERSION_2, "/spaces", ConfluenceResultSet, query={"limit": "1"})
-                base_url = data._links.base  # pyright: ignore[reportPrivateUsage]
+                # Use detected API version for domain/base_path inference
+                if self.api_version == ConfluenceVersion.VERSION_1:
+                    # v1 API: GET /rest/api/space?limit=1
+                    data = self._get(ConfluenceVersion.VERSION_1, "/space", dict[str, JsonType], query={"limit": "1"})
+                    results = typing.cast(list[JsonType], data.get("results", []))
+                    if results:
+                        result = typing.cast(dict[str, JsonType], results[0])
+                        links = typing.cast(dict[str, JsonType], result.get("_links", {}))
+                        base_url = typing.cast(str, links.get("base", ""))
+                    else:
+                        raise ConfluenceError("Unable to infer domain and base path: no spaces found")
+                else:
+                    # v2 API: GET /api/v2/spaces?limit=1
+                    data = self._get(ConfluenceVersion.VERSION_2, "/spaces", ConfluenceResultSet, query={"limit": "1"})
+                    base_url = data._links.base  # pyright: ignore[reportPrivateUsage]
 
                 _, domain, base_path, _, _, _ = urlparse(base_url)
                 if not base_path.endswith("/"):
@@ -479,28 +492,35 @@ class ConfluenceSession:
 
         if not api_url:
             LOGGER.info("Discovering Confluence REST API URL")
-            try:
-                # obtain cloud ID to build URL for access with scoped token
-                response = self.session.get(f"https://{self.site.domain}/_edge/tenant_info", headers={"Accept": "application/json"}, verify=True)
-                if response.text:
-                    LOGGER.debug("Received HTTP payload:\n%s", response.text)
-                response.raise_for_status()
-                cloud_id = response.json()["cloudId"]
 
-                # try next-generation REST API URL
-                LOGGER.info("Probing scoped Confluence REST API URL")
-                self.api_url = f"https://api.atlassian.com/ex/confluence/{cloud_id}/"
-                url = self._build_url(ConfluenceVersion.VERSION_2, "/spaces", {"limit": "1"})
-                response = self.session.get(url, headers={"Accept": "application/json"}, verify=True)
-                if response.text:
-                    LOGGER.debug("Received HTTP payload:\n%s", response.text)
-                response.raise_for_status()
-
-                LOGGER.info("Configured scoped Confluence REST API URL: %s", self.api_url)
-            except requests.exceptions.HTTPError:
-                # fall back to classic REST API URL
+            # For Data Center/Server (v1 API), always use classic REST API URL
+            if self.api_version == ConfluenceVersion.VERSION_1:
                 self.api_url = f"https://{self.site.domain}{self.site.base_path}"
-                LOGGER.info("Configured classic Confluence REST API URL: %s", self.api_url)
+                LOGGER.info("Configured classic Confluence REST API URL for Data Center/Server: %s", self.api_url)
+            else:
+                # For Cloud (v2 API), try scoped API URL first, then fall back to classic
+                try:
+                    # obtain cloud ID to build URL for access with scoped token
+                    response = self.session.get(f"https://{self.site.domain}/_edge/tenant_info", headers={"Accept": "application/json"}, verify=True)
+                    if response.text:
+                        LOGGER.debug("Received HTTP payload:\n%s", response.text)
+                    response.raise_for_status()
+                    cloud_id = response.json()["cloudId"]
+
+                    # try next-generation REST API URL
+                    LOGGER.info("Probing scoped Confluence REST API URL")
+                    self.api_url = f"https://api.atlassian.com/ex/confluence/{cloud_id}/"
+                    url = self._build_url(ConfluenceVersion.VERSION_2, "/spaces", {"limit": "1"})
+                    response = self.session.get(url, headers={"Accept": "application/json"}, verify=True)
+                    if response.text:
+                        LOGGER.debug("Received HTTP payload:\n%s", response.text)
+                    response.raise_for_status()
+
+                    LOGGER.info("Configured scoped Confluence REST API URL: %s", self.api_url)
+                except requests.exceptions.HTTPError:
+                    # fall back to classic REST API URL
+                    self.api_url = f"https://{self.site.domain}{self.site.base_path}"
+                    LOGGER.info("Configured classic Confluence REST API URL: %s", self.api_url)
 
     def close(self) -> None:
         self.session.close()
@@ -624,47 +644,110 @@ class ConfluenceSession:
         response.raise_for_status()
         return response_cast(response_type, response)
 
+    def _space_id_to_key_v1(self, id: str) -> str:
+        """
+        Get space key from space ID using v1 API.
+
+        v1 API limitation: No direct endpoint to lookup space by ID.
+        This method relies on the reverse cache from space_key_to_id operations.
+
+        Args:
+            id: Space ID
+
+        Returns:
+            Space key as string
+
+        Raises:
+            ConfluenceError: If space ID is not in cache
+        """
+        key = self._space_id_to_key.get(id)
+        if key is None:
+            raise ConfluenceError(
+                f"Cannot resolve space ID '{id}' to space key with v1 API. "
+                f"The space must be accessed by key first to populate the cache. "
+                f"v1 API does not support direct space lookup by ID."
+            )
+        return key
+
     def space_id_to_key(self, id: str) -> str:
         "Finds the Confluence space key for a space ID."
 
+        # Check cache first (works for both versions)
         key = self._space_id_to_key.get(id)
         if key is None:
-            data = self._get(
-                ConfluenceVersion.VERSION_2,
-                "/spaces",
-                dict[str, JsonType],
-                query={"ids": id, "status": "current"},
-            )
-            results = typing.cast(list[JsonType], data["results"])
-            if len(results) != 1:
-                raise ConfluenceError(f"unique space not found with id: {id}")
+            # Route to appropriate API version
+            if self.api_version == ConfluenceVersion.VERSION_1:
+                key = self._space_id_to_key_v1(id)
+            else:
+                # v2 implementation
+                data = self._get(
+                    ConfluenceVersion.VERSION_2,
+                    "/spaces",
+                    dict[str, JsonType],
+                    query={"ids": id, "status": "current"},
+                )
+                results = typing.cast(list[JsonType], data["results"])
+                if len(results) != 1:
+                    raise ConfluenceError(f"unique space not found with id: {id}")
 
-            result = typing.cast(dict[str, JsonType], results[0])
-            key = typing.cast(str, result["key"])
+                result = typing.cast(dict[str, JsonType], results[0])
+                key = typing.cast(str, result["key"])
 
-            self._space_id_to_key[id] = key
+                self._space_id_to_key[id] = key
 
         return key
+
+    def _space_key_to_id_v1(self, key: str) -> str:
+        """
+        Get space ID from space key using v1 API.
+
+        v1 API endpoint: GET /rest/api/space/{spaceKey}
+
+        Args:
+            key: Space key (e.g., "SPACE")
+
+        Returns:
+            Space ID as string
+        """
+        from .api_mappers import map_space_v1_to_id
+
+        response = self._get(
+            ConfluenceVersion.VERSION_1,
+            f"/space/{key}",
+            dict[str, JsonType],
+        )
+        space_id = map_space_v1_to_id(response)
+        self._space_key_to_id[key] = space_id
+        # Populate reverse cache for v1 API limitation workaround
+        self._space_id_to_key[space_id] = key
+        return space_id
 
     def space_key_to_id(self, key: str) -> str:
         "Finds the Confluence space ID for a space key."
 
         id = self._space_key_to_id.get(key)
         if id is None:
-            data = self._get(
-                ConfluenceVersion.VERSION_2,
-                "/spaces",
-                dict[str, JsonType],
-                query={"keys": key, "status": "current"},
-            )
-            results = typing.cast(list[JsonType], data["results"])
-            if len(results) != 1:
-                raise ConfluenceError(f"unique space not found with key: {key}")
+            # Route to appropriate API version
+            if self.api_version == ConfluenceVersion.VERSION_1:
+                id = self._space_key_to_id_v1(key)
+            else:
+                # v2 implementation
+                data = self._get(
+                    ConfluenceVersion.VERSION_2,
+                    "/spaces",
+                    dict[str, JsonType],
+                    query={"keys": key, "status": "current"},
+                )
+                results = typing.cast(list[JsonType], data["results"])
+                if len(results) != 1:
+                    raise ConfluenceError(f"unique space not found with key: {key}")
 
-            result = typing.cast(dict[str, JsonType], results[0])
-            id = typing.cast(str, result["id"])
+                result = typing.cast(dict[str, JsonType], results[0])
+                id = typing.cast(str, result["id"])
 
-            self._space_key_to_id[key] = id
+                self._space_key_to_id[key] = id
+                # Populate reverse cache
+                self._space_id_to_key[id] = key
 
         return id
 

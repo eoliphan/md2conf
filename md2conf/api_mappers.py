@@ -165,12 +165,8 @@ def map_space_v1_to_id(v1_response: Dict[str, JsonType]) -> str:
 
     Returns:
         Space ID as a string
-
-    Note:
-        TODO: Implement v1 space response mapping
     """
-    # TODO: Return v1_response["id"]
-    raise NotImplementedError("TODO: Implement space v1 to ID mapper")
+    return str(v1_response["id"])
 
 
 def map_attachment_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceAttachment:
