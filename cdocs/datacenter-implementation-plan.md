@@ -105,98 +105,110 @@ Add REST API v1 support to md2conf to enable compatibility with Confluence Data 
 
 ## Phase 3: Page Operations (Est. 4 days)
 
-- [ ] **Task 3.1:** Implement `get_page_v1()`
+- [x] **Task 3.1:** Implement `get_page_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `GET /rest/api/content/{pageId}?expand=body.storage,version,space`
     - Map v1 response to ConfluencePage using mapper
     - Handle nested structure (space.id, body.storage.value, etc.)
     - Extract spaceId from nested space object
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Implemented in api.py:971-985, uses map_page_v1_to_domain
 
-- [ ] **Task 3.2:** Implement `get_page_properties_v1()`
+- [x] **Task 3.2:** Implement `get_page_properties_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `GET /rest/api/content/{pageId}?expand=version,space`
     - Map to ConfluencePageProperties
     - Extract parentId from ancestors array (last element)
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Implemented in api.py:1000-1014, uses map_page_properties_v1_to_domain
 
-- [ ] **Task 3.3:** Implement `get_page_properties_by_title_v1()`
+- [x] **Task 3.3:** Implement `get_page_properties_by_title_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `GET /rest/api/content?title={title}&spaceKey={spaceKey}&type=page`
     - Critical: Convert spaceId to spaceKey before calling
     - Map response to ConfluencePageProperties
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Implemented in api.py:938-982, handles spaceId to spaceKey conversion
 
-- [ ] **Task 3.4:** Implement `create_page_v1()`
+- [x] **Task 3.4:** Implement `create_page_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `POST /rest/api/content/`
     - Critical: Convert spaceId to spaceKey
     - Build v1 request body with space.key and ancestors array
     - Map response back to ConfluencePage
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Implemented in api.py:1115-1161, uses map_create_page_to_v1
 
-- [ ] **Task 3.5:** Implement `update_page_v1()`
+- [x] **Task 3.5:** Implement `update_page_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `PUT /rest/api/content/{pageId}`
     - Build v1 request similar to create
     - Include version number for optimistic locking
     - Handle space reference conversion
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Implemented in api.py:1087-1135, uses map_update_page_to_v1
 
-- [ ] **Task 3.6:** Implement `delete_page_v1()`
+- [x] **Task 3.6:** Implement `delete_page_v1()`
   - Update `md2conf/api.py`:
     - Trash: `DELETE /rest/api/content/{pageId}?status=current`
     - Research and implement v1 purge mechanism
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Implemented in api.py:1258-1281, supports purge parameter
 
-- [ ] **Task 3.7:** Implement `page_exists_v1()`
+- [x] **Task 3.7:** Implement `page_exists_v1()`
   - Update `md2conf/api.py`:
     - Reuse `get_page_properties_by_title_v1()` logic
     - Handle 404 as "does not exist"
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Implemented in api.py:1309-1364, uses v1 content search
 
-- [ ] **Task 3.8:** Add version routing to all page methods
+- [x] **Task 3.8:** Add version routing to all page methods
   - Update `md2conf/api.py`:
     - Update each page method to check `self.api_version`
     - Route to v1 or v2 implementation appropriately
     - Methods: `get_page()`, `get_page_properties()`, `get_page_properties_by_title()`, `create_page()`, `update_page()`, `delete_page()`, `page_exists()`
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - All page methods now have version routing
 
 ---
 
 ## Phase 4: Attachment Operations (Est. 1 day)
 
-- [ ] **Task 4.1:** Implement `get_attachment_by_name_v1()`
+- [x] **Task 4.1:** Implement `get_attachment_by_name_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `GET /rest/api/content/{pageId}/child/attachment?filename={filename}`
     - Map v1 response to ConfluenceAttachment
     - Handle field name differences in v1 structure
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Implemented in api.py:775-790, uses map_attachment_v1_to_domain
 
-- [ ] **Task 4.2:** Verify existing attachment operations
+- [x] **Task 4.2:** Verify existing attachment operations
   - Update `md2conf/api.py`:
     - Confirm `upload_attachment()` works with Data Center (already uses v1)
     - Confirm `_update_attachment()` works (already uses v1)
     - Add version routing if needed
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Verified upload_attachment (line 851) and _update_attachment (line 936) already use v1 API
 
 ---
 
 ## Phase 5: Label Operations (Est. 1 day)
 
-- [ ] **Task 5.1:** Implement `get_labels_v1()` with pagination
+- [x] **Task 5.1:** Implement `get_labels_v1()` with pagination
   - Update `md2conf/api.py`:
     - Endpoint: `GET /rest/api/content/{pageId}/label`
     - Use v1 pagination helper (to be created)
     - Map to ConfluenceIdentifiedLabel
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Implemented in api.py:1448-1480 with custom v1 pagination (start/limit pattern)
 
-- [ ] **Task 5.2:** Verify existing label write operations
+- [x] **Task 5.2:** Verify existing label write operations
   - Update `md2conf/api.py`:
     - Confirm `add_labels()` works (already uses v1)
     - Confirm `remove_labels()` works (already uses v1)
     - Ensure proper version routing
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Complete - Verified add_labels (line 1469) and remove_labels (line 1483) already use v1 API
 
 ---
 
