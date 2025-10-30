@@ -1445,6 +1445,40 @@ class ConfluenceSession:
             LOGGER.debug("Creating new page with title: %s", title)
             return self.create_page(parent_id, title, "")
 
+    def _get_labels_v1(self, page_id: str) -> list[ConfluenceIdentifiedLabel]:
+        """
+        Retrieves labels for a Confluence page using v1 API with pagination.
+
+        v1 API endpoint: GET /rest/api/content/{pageId}/label
+
+        :param page_id: The Confluence page ID.
+        :returns: A list of page labels.
+        """
+        from .api_mappers import map_label_v1_to_domain
+
+        # v1 API pagination
+        items: list[ConfluenceIdentifiedLabel] = []
+        start = 0
+        limit = 200
+        path = f"/content/{page_id}/label"
+
+        while True:
+            query = {"start": str(start), "limit": str(limit)}
+            data = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
+
+            results = typing.cast(list[JsonType], data.get("results", []))
+            for result in results:
+                result_dict = typing.cast(dict[str, JsonType], result)
+                items.append(map_label_v1_to_domain(result_dict))
+
+            # Check if there are more results
+            size = int(data.get("size", 0))
+            if size < limit:
+                break
+            start += limit
+
+        return items
+
     def get_labels(self, page_id: str) -> list[ConfluenceIdentifiedLabel]:
         """
         Retrieves labels for a Confluence page.
@@ -1452,10 +1486,12 @@ class ConfluenceSession:
         :param page_id: The Confluence page ID.
         :returns: A list of page labels.
         """
-
-        path = f"/pages/{page_id}/labels"
-        results = self._fetch(path)
-        return _json_to_object(list[ConfluenceIdentifiedLabel], results)
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_labels_v1(page_id)
+        else:
+            path = f"/pages/{page_id}/labels"
+            results = self._fetch(path)
+            return _json_to_object(list[ConfluenceIdentifiedLabel], results)
 
     def add_labels(self, page_id: str, labels: list[ConfluenceLabel]) -> None:
         """

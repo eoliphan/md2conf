@@ -290,15 +290,19 @@ def map_label_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceIdenti
 
     Returns:
         ConfluenceIdentifiedLabel object with mapped fields
-
-    Note:
-        TODO: Implement v1 label mapping
     """
-    # TODO: Extract label fields from v1 response
-    # - Extract id from v1_response["id"]
-    # - Extract name from v1_response["name"]
-    # - Extract prefix from v1_response["prefix"]
-    raise NotImplementedError("TODO: Implement v1 label mapper")
+    from .api import ConfluenceIdentifiedLabel
+
+    # Extract label fields
+    label_id = str(v1_response["id"])
+    name = str(v1_response["name"])
+    prefix = str(v1_response.get("prefix", "global"))
+
+    return ConfluenceIdentifiedLabel(
+        id=label_id,
+        name=name,
+        prefix=prefix
+    )
 
 
 def map_property_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceIdentifiedContentProperty:
