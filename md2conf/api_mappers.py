@@ -35,24 +35,55 @@ def map_page_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePage:
     - Field names may differ (e.g., version structure)
 
     Args:
-        v1_response: JSON response from GET /rest/api/content/{id}
+        v1_response: JSON response from GET /rest/api/content/{id}?expand=body.storage,version,space
 
     Returns:
         ConfluencePage object with mapped fields
-
-    Note:
-        TODO: Implement v1 to domain mapping
     """
-    # TODO: Extract fields from v1 response structure
-    # - Extract id from v1_response["id"]
-    # - Extract space ID from v1_response["space"]["id"]
-    # - Extract title from v1_response["title"]
-    # - Extract status from v1_response["status"]
-    # - Extract parentId from v1_response["ancestors"][-1]["id"] if ancestors exist
-    # - Extract body from v1_response["body"]["storage"]["value"]
-    # - Extract version from v1_response["version"]["number"]
-    # - Extract other metadata fields
-    raise NotImplementedError("TODO: Implement v1 page mapper")
+    import typing
+    from .api import ConfluencePageBody, ConfluencePageBodyRepresentation, ConfluencePageVersion
+
+    # Extract basic fields
+    page_id = str(v1_response["id"])
+    title = str(v1_response["title"])
+    status = str(v1_response["status"])
+
+    # Extract space ID from nested structure
+    space_dict = typing.cast(Dict[str, JsonType], v1_response.get("space", {}))
+    space_id = str(space_dict["id"])
+
+    # Extract parentId from ancestors array (last element)
+    ancestors = typing.cast(list[JsonType], v1_response.get("ancestors", []))
+    parent_id = None
+    if ancestors:
+        last_ancestor = typing.cast(Dict[str, JsonType], ancestors[-1])
+        parent_id = str(last_ancestor["id"])
+
+    # Extract body content from nested structure
+    body_dict = typing.cast(Dict[str, JsonType], v1_response.get("body", {}))
+    storage_dict = typing.cast(Dict[str, JsonType], body_dict.get("storage", {}))
+    body_value = str(storage_dict.get("value", ""))
+    body_representation = str(storage_dict.get("representation", "storage"))
+
+    # Extract version number
+    version_dict = typing.cast(Dict[str, JsonType], v1_response.get("version", {}))
+    version_number = int(version_dict.get("number", 1))
+
+    # Build ConfluencePage object
+    return ConfluencePage(
+        id=page_id,
+        spaceId=space_id,
+        parentId=parent_id,
+        status=status,
+        title=title,
+        body=ConfluencePageBody(
+            storage=ConfluencePageBodyRepresentation(
+                value=body_value,
+                representation=body_representation
+            )
+        ),
+        version=ConfluencePageVersion(number=version_number)
+    )
 
 
 def map_page_properties_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePageProperties:
@@ -62,19 +93,43 @@ def map_page_properties_v1_to_domain(v1_response: Dict[str, JsonType]) -> Conflu
     This extracts only the properties (metadata) from a v1 page response, excluding body content.
 
     Args:
-        v1_response: JSON response from GET /rest/api/content/{id}
+        v1_response: JSON response from GET /rest/api/content/{id}?expand=version,space
 
     Returns:
         ConfluencePageProperties object with mapped fields
-
-    Note:
-        TODO: Implement v1 to domain mapping
     """
-    # TODO: Extract property fields from v1 response structure
-    # - Similar to map_page_v1_to_domain but without body content
-    # - Extract parentId from ancestors array: v1_response.get("ancestors", [])[-1]["id"]
-    # - Map field names to match ConfluencePageProperties structure
-    raise NotImplementedError("TODO: Implement v1 page properties mapper")
+    import typing
+    from .api import ConfluencePageVersion
+
+    # Extract basic fields
+    page_id = str(v1_response["id"])
+    title = str(v1_response["title"])
+    status = str(v1_response["status"])
+
+    # Extract space ID from nested structure
+    space_dict = typing.cast(Dict[str, JsonType], v1_response.get("space", {}))
+    space_id = str(space_dict["id"])
+
+    # Extract parentId from ancestors array (last element)
+    ancestors = typing.cast(list[JsonType], v1_response.get("ancestors", []))
+    parent_id = None
+    if ancestors:
+        last_ancestor = typing.cast(Dict[str, JsonType], ancestors[-1])
+        parent_id = str(last_ancestor["id"])
+
+    # Extract version number
+    version_dict = typing.cast(Dict[str, JsonType], v1_response.get("version", {}))
+    version_number = int(version_dict.get("number", 1))
+
+    # Build ConfluencePageProperties object
+    return ConfluencePageProperties(
+        id=page_id,
+        spaceId=space_id,
+        parentId=parent_id,
+        status=status,
+        title=title,
+        version=ConfluencePageVersion(number=version_number)
+    )
 
 
 def map_create_page_to_v1(request: ConfluenceCreatePageRequest, space_key: str) -> Dict[str, JsonType]:
@@ -92,25 +147,28 @@ def map_create_page_to_v1(request: ConfluenceCreatePageRequest, space_key: str) 
 
     Returns:
         Dictionary formatted for v1 POST /rest/api/content
-
-    Note:
-        TODO: Implement domain to v1 mapping
     """
-    # TODO: Build v1 structure from domain request
-    # {
-    #     "type": "page",
-    #     "title": request.title,
-    #     "space": {"key": space_key},
-    #     "ancestors": [{"id": request.parentId}] if request.parentId else [],
-    #     "body": {
-    #         "storage": {
-    #             "value": request.body.storage.value,
-    #             "representation": "storage"
-    #         }
-    #     },
-    #     "status": request.status.value if request.status else "current"
-    # }
-    raise NotImplementedError("TODO: Implement create page to v1 mapper")
+    v1_request: Dict[str, JsonType] = {
+        "type": "page",
+        "title": request.title,
+        "space": {"key": space_key},
+        "body": {
+            "storage": {
+                "value": request.body.storage.value,
+                "representation": "storage"
+            }
+        }
+    }
+
+    # Add ancestors if parentId is provided
+    if request.parentId:
+        v1_request["ancestors"] = [{"id": request.parentId}]
+
+    # Add status if provided
+    if request.status:
+        v1_request["status"] = request.status
+
+    return v1_request
 
 
 def map_update_page_to_v1(page_id: str, request: ConfluenceUpdatePageRequest, space_key: str) -> Dict[str, JsonType]:
@@ -131,29 +189,29 @@ def map_update_page_to_v1(page_id: str, request: ConfluenceUpdatePageRequest, sp
 
     Returns:
         Dictionary formatted for v1 PUT /rest/api/content/{id}
-
-    Note:
-        TODO: Implement domain to v1 mapping
     """
-    # TODO: Build v1 structure from domain request
-    # {
-    #     "id": page_id,
-    #     "type": "page",
-    #     "title": request.title,
-    #     "space": {"key": space_key},
-    #     "body": {
-    #         "storage": {
-    #             "value": request.body.storage.value,
-    #             "representation": "storage"
-    #         }
-    #     },
-    #     "version": {
-    #         "number": request.version.number,
-    #         "minorEdit": request.version.minorEdit
-    #     },
-    #     "status": request.status.value
-    # }
-    raise NotImplementedError("TODO: Implement update page to v1 mapper")
+    v1_request: Dict[str, JsonType] = {
+        "id": page_id,
+        "type": "page",
+        "title": request.title,
+        "space": {"key": space_key},
+        "body": {
+            "storage": {
+                "value": request.body.storage.value,
+                "representation": "storage"
+            }
+        },
+        "version": {
+            "number": request.version.number
+        },
+        "status": request.status
+    }
+
+    # Add minorEdit if provided
+    if hasattr(request.version, 'minorEdit') and request.version.minorEdit is not None:
+        v1_request["version"]["minorEdit"] = request.version.minorEdit  # type: ignore
+
+    return v1_request
 
 
 def map_space_v1_to_id(v1_response: Dict[str, JsonType]) -> str:

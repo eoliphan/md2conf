@@ -935,6 +935,52 @@ class ConfluenceSession:
         LOGGER.info("Updating attachment: %s", attachment_id)
         self._put(ConfluenceVersion.VERSION_1, path, request, None)
 
+    def _get_page_properties_by_title_v1(
+        self,
+        title: str,
+        *,
+        space_id: Optional[str] = None,
+        space_key: Optional[str] = None,
+    ) -> ConfluencePageProperties:
+        """
+        Looks up a Confluence wiki page by title using v1 API.
+
+        v1 API endpoint: GET /rest/api/content?title={title}&spaceKey={spaceKey}&type=page&expand=version,space
+
+        :param title: The page title.
+        :param space_id: The Confluence space ID (unless the default space is to be used). Exclusive with space key.
+        :param space_key: The Confluence space key (unless the default space is to be used). Exclusive with space ID.
+        :returns: Confluence page properties.
+        """
+        from .api_mappers import map_page_properties_v1_to_domain
+
+        LOGGER.info("Looking up page with title: %s", title)
+
+        # v1 API requires spaceKey, not spaceId
+        if space_id is not None and space_key is None:
+            space_key = self.space_id_to_key(space_id)
+        elif space_key is None:
+            # Get default space key
+            default_space_id = self.get_space_id(space_id=space_id, space_key=space_key)
+            if default_space_id:
+                space_key = self.space_id_to_key(default_space_id)
+
+        path = "/content"
+        query = {
+            "title": title,
+            "type": "page",
+            "expand": "version,space",
+        }
+        if space_key is not None:
+            query["spaceKey"] = space_key
+
+        data = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
+        results = typing.cast(list[JsonType], data.get("results", []))
+        if len(results) != 1:
+            raise ConfluenceError(f"unique page not found with title: {title}")
+
+        return map_page_properties_v1_to_domain(results[0])
+
     def get_page_properties_by_title(
         self,
         title: str,
@@ -950,23 +996,41 @@ class ConfluenceSession:
         :param space_key: The Confluence space key (unless the default space is to be used). Exclusive with space ID.
         :returns: Confluence page ID.
         """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_page_properties_by_title_v1(title, space_id=space_id, space_key=space_key)
+        else:
+            LOGGER.info("Looking up page with title: %s", title)
+            path = "/pages"
+            query = {
+                "title": title,
+            }
+            space_id = self.get_space_id(space_id=space_id, space_key=space_key)
+            if space_id is not None:
+                query["space-id"] = space_id
 
-        LOGGER.info("Looking up page with title: %s", title)
-        path = "/pages"
-        query = {
-            "title": title,
-        }
-        space_id = self.get_space_id(space_id=space_id, space_key=space_key)
-        if space_id is not None:
-            query["space-id"] = space_id
+            data = self._get(ConfluenceVersion.VERSION_2, path, dict[str, JsonType], query=query)
+            results = typing.cast(list[JsonType], data["results"])
+            if len(results) != 1:
+                raise ConfluenceError(f"unique page not found with title: {title}")
 
-        data = self._get(ConfluenceVersion.VERSION_2, path, dict[str, JsonType], query=query)
-        results = typing.cast(list[JsonType], data["results"])
-        if len(results) != 1:
-            raise ConfluenceError(f"unique page not found with title: {title}")
+            page = _json_to_object(ConfluencePageProperties, results[0])
+            return page
 
-        page = _json_to_object(ConfluencePageProperties, results[0])
-        return page
+    def _get_page_v1(self, page_id: str) -> ConfluencePage:
+        """
+        Retrieves Confluence wiki page details and content using v1 API.
+
+        v1 API endpoint: GET /rest/api/content/{pageId}?expand=body.storage,version,space
+
+        :param page_id: The Confluence page ID.
+        :returns: Confluence page info and content.
+        """
+        from .api_mappers import map_page_v1_to_domain
+
+        path = f"/content/{page_id}"
+        query = {"expand": "body.storage,version,space"}
+        response = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
+        return map_page_v1_to_domain(response)
 
     def get_page(self, page_id: str) -> ConfluencePage:
         """
@@ -975,9 +1039,27 @@ class ConfluenceSession:
         :param page_id: The Confluence page ID.
         :returns: Confluence page info and content.
         """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_page_v1(page_id)
+        else:
+            path = f"/pages/{page_id}"
+            return self._get(ConfluenceVersion.VERSION_2, path, ConfluencePage, query={"body-format": "storage"})
 
-        path = f"/pages/{page_id}"
-        return self._get(ConfluenceVersion.VERSION_2, path, ConfluencePage, query={"body-format": "storage"})
+    def _get_page_properties_v1(self, page_id: str) -> ConfluencePageProperties:
+        """
+        Retrieves Confluence wiki page details using v1 API.
+
+        v1 API endpoint: GET /rest/api/content/{pageId}?expand=version,space
+
+        :param page_id: The Confluence page ID.
+        :returns: Confluence page info.
+        """
+        from .api_mappers import map_page_properties_v1_to_domain
+
+        path = f"/content/{page_id}"
+        query = {"expand": "version,space"}
+        response = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
+        return map_page_properties_v1_to_domain(response)
 
     def get_page_properties(self, page_id: str) -> ConfluencePageProperties:
         """
@@ -986,9 +1068,11 @@ class ConfluenceSession:
         :param page_id: The Confluence page ID.
         :returns: Confluence page info.
         """
-
-        path = f"/pages/{page_id}"
-        return self._get(ConfluenceVersion.VERSION_2, path, ConfluencePageProperties)
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_page_properties_v1(page_id)
+        else:
+            path = f"/pages/{page_id}"
+            return self._get(ConfluenceVersion.VERSION_2, path, ConfluencePageProperties)
 
     def get_page_version(self, page_id: str) -> int:
         """
@@ -999,6 +1083,56 @@ class ConfluenceSession:
         """
 
         return self.get_page_properties(page_id).version.number
+
+    def _update_page_v1(
+        self,
+        page_id: str,
+        content: str,
+        *,
+        title: str,
+        version: int,
+    ) -> None:
+        """
+        Updates a page via the Confluence v1 API.
+
+        v1 API endpoint: PUT /rest/api/content/{pageId}
+
+        :param page_id: The Confluence page ID.
+        :param content: Confluence Storage Format XHTML.
+        :param title: New title to assign to the page. Needs to be unique within a space.
+        :param version: New version to assign to the page.
+        """
+        from .api_mappers import map_update_page_to_v1
+
+        LOGGER.info("Updating page: %s", page_id)
+
+        # Get current page to get spaceId
+        page_properties = self.get_page_properties(page_id)
+        space_key = self.space_id_to_key(page_properties.spaceId)
+
+        request = ConfluenceUpdatePageRequest(
+            id=page_id,
+            status=ConfluenceStatus.CURRENT,
+            title=title,
+            body=ConfluencePageBody(storage=ConfluencePageStorage(representation=ConfluenceRepresentation.STORAGE, value=content)),
+            version=ConfluenceContentVersion(number=version, minorEdit=True),
+        )
+
+        # Map to v1 format
+        v1_request = map_update_page_to_v1(page_id, request, space_key)
+
+        path = f"/content/{page_id}"
+        url = self._build_url(ConfluenceVersion.VERSION_1, path)
+        response = self.session.put(
+            url,
+            data=json_dump_string(v1_request).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            verify=True,
+        )
+        response.raise_for_status()
 
     def update_page(
         self,
@@ -1016,33 +1150,38 @@ class ConfluenceSession:
         :param title: New title to assign to the page. Needs to be unique within a space.
         :param version: New version to assign to the page.
         """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            self._update_page_v1(page_id, content, title=title, version=version)
+        else:
+            path = f"/pages/{page_id}"
+            request = ConfluenceUpdatePageRequest(
+                id=page_id,
+                status=ConfluenceStatus.CURRENT,
+                title=title,
+                body=ConfluencePageBody(storage=ConfluencePageStorage(representation=ConfluenceRepresentation.STORAGE, value=content)),
+                version=ConfluenceContentVersion(number=version, minorEdit=True),
+            )
+            LOGGER.info("Updating page: %s", page_id)
+            self._put(ConfluenceVersion.VERSION_2, path, request, None)
 
-        path = f"/pages/{page_id}"
-        request = ConfluenceUpdatePageRequest(
-            id=page_id,
-            status=ConfluenceStatus.CURRENT,
-            title=title,
-            body=ConfluencePageBody(storage=ConfluencePageStorage(representation=ConfluenceRepresentation.STORAGE, value=content)),
-            version=ConfluenceContentVersion(number=version, minorEdit=True),
-        )
-        LOGGER.info("Updating page: %s", page_id)
-        self._put(ConfluenceVersion.VERSION_2, path, request, None)
-
-    def create_page(
+    def _create_page_v1(
         self,
         parent_id: str,
         title: str,
         new_content: str,
     ) -> ConfluencePage:
         """
-        Creates a new page via Confluence API.
+        Creates a new page via Confluence v1 API.
+
+        v1 API endpoint: POST /rest/api/content
         """
+        from .api_mappers import map_create_page_to_v1, map_page_v1_to_domain
 
         LOGGER.info("Creating page: %s", title)
 
         parent_page = self.get_page_properties(parent_id)
+        space_key = self.space_id_to_key(parent_page.spaceId)
 
-        path = "/pages/"
         request = ConfluenceCreatePageRequest(
             spaceId=parent_page.spaceId,
             status=ConfluenceStatus.CURRENT,
@@ -1056,10 +1195,14 @@ class ConfluenceSession:
             ),
         )
 
-        url = self._build_url(ConfluenceVersion.VERSION_2, path)
+        # Map to v1 format
+        v1_request = map_create_page_to_v1(request, space_key)
+
+        path = "/content"
+        url = self._build_url(ConfluenceVersion.VERSION_1, path)
         response = self.session.post(
             url,
-            data=json_dump_string(object_to_json(request)).encode("utf-8"),
+            data=json_dump_string(v1_request).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
@@ -1067,7 +1210,75 @@ class ConfluenceSession:
             verify=True,
         )
         response.raise_for_status()
-        return _json_to_object(ConfluencePage, response.json())
+        return map_page_v1_to_domain(response.json())
+
+    def create_page(
+        self,
+        parent_id: str,
+        title: str,
+        new_content: str,
+    ) -> ConfluencePage:
+        """
+        Creates a new page via Confluence API.
+        """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._create_page_v1(parent_id, title, new_content)
+        else:
+            LOGGER.info("Creating page: %s", title)
+
+            parent_page = self.get_page_properties(parent_id)
+
+            path = "/pages/"
+            request = ConfluenceCreatePageRequest(
+                spaceId=parent_page.spaceId,
+                status=ConfluenceStatus.CURRENT,
+                title=title,
+                parentId=parent_id,
+                body=ConfluencePageBody(
+                    storage=ConfluencePageStorage(
+                        representation=ConfluenceRepresentation.STORAGE,
+                        value=new_content,
+                    )
+                ),
+            )
+
+            url = self._build_url(ConfluenceVersion.VERSION_2, path)
+            response = self.session.post(
+                url,
+                data=json_dump_string(object_to_json(request)).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                verify=True,
+            )
+            response.raise_for_status()
+            return _json_to_object(ConfluencePage, response.json())
+
+    def _delete_page_v1(self, page_id: str, *, purge: bool = False) -> None:
+        """
+        Deletes a page via Confluence v1 API.
+
+        v1 API endpoint: DELETE /rest/api/content/{pageId}
+
+        :param page_id: The Confluence page ID.
+        :param purge: `True` to completely purge the page, `False` to move to trash only.
+        """
+        path = f"/content/{page_id}"
+
+        if purge:
+            # Permanently delete with purge parameter
+            query = {"status": "trashed"}
+            url = self._build_url(ConfluenceVersion.VERSION_1, path, query)
+            LOGGER.info("Permanently deleting page: %s", page_id)
+            response = self.session.delete(url, verify=True)
+            response.raise_for_status()
+        else:
+            # Move to trash
+            url = self._build_url(ConfluenceVersion.VERSION_1, path)
+            LOGGER.info("Moving page to trash: %s", page_id)
+            response = self.session.delete(url, verify=True)
+            response.raise_for_status()
 
     def delete_page(self, page_id: str, *, purge: bool = False) -> None:
         """
@@ -1076,22 +1287,81 @@ class ConfluenceSession:
         :param page_id: The Confluence page ID.
         :param purge: `True` to completely purge the page, `False` to move to trash only.
         """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            self._delete_page_v1(page_id, purge=purge)
+        else:
+            path = f"/pages/{page_id}"
 
-        path = f"/pages/{page_id}"
-
-        # move to trash
-        url = self._build_url(ConfluenceVersion.VERSION_2, path)
-        LOGGER.info("Moving page to trash: %s", page_id)
-        response = self.session.delete(url, verify=True)
-        response.raise_for_status()
-
-        if purge:
-            # purge from trash
-            query = {"purge": "true"}
-            url = self._build_url(ConfluenceVersion.VERSION_2, path, query)
-            LOGGER.info("Permanently deleting page: %s", page_id)
+            # move to trash
+            url = self._build_url(ConfluenceVersion.VERSION_2, path)
+            LOGGER.info("Moving page to trash: %s", page_id)
             response = self.session.delete(url, verify=True)
             response.raise_for_status()
+
+            if purge:
+                # purge from trash
+                query = {"purge": "true"}
+                url = self._build_url(ConfluenceVersion.VERSION_2, path, query)
+                LOGGER.info("Permanently deleting page: %s", page_id)
+                response = self.session.delete(url, verify=True)
+                response.raise_for_status()
+
+    def _page_exists_v1(
+        self,
+        title: str,
+        *,
+        space_id: Optional[str] = None,
+        space_key: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Checks if a Confluence page exists with the given title using v1 API.
+
+        v1 API endpoint: GET /rest/api/content?title={title}&spaceKey={spaceKey}&type=page
+
+        :param title: Page title. Pages in the same Confluence space must have a unique title.
+        :param space_id: Identifies the Confluence space by ID.
+        :param space_key: Identifies the Confluence space by key.
+
+        :returns: Confluence page ID of a matching page (if found), or `None`.
+        """
+        LOGGER.info("Checking if page exists with title: %s", title)
+
+        # v1 API requires spaceKey, not spaceId
+        if space_id is not None and space_key is None:
+            space_key = self.space_id_to_key(space_id)
+        elif space_key is None:
+            # Get default space key
+            default_space_id = self.get_space_id(space_id=space_id, space_key=space_key)
+            if default_space_id:
+                space_key = self.space_id_to_key(default_space_id)
+
+        path = "/content"
+        query = {
+            "title": title,
+            "type": "page",
+        }
+        if space_key is not None:
+            query["spaceKey"] = space_key
+
+        url = self._build_url(ConfluenceVersion.VERSION_1, path)
+        response = self.session.get(
+            url,
+            params=query,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            verify=True,
+        )
+        response.raise_for_status()
+        data = typing.cast(dict[str, JsonType], response.json())
+        results = typing.cast(list[JsonType], data.get("results", []))
+
+        if len(results) == 1:
+            result = typing.cast(dict[str, JsonType], results[0])
+            return str(result["id"])
+        else:
+            return None
 
     def page_exists(
         self,
@@ -1108,33 +1378,35 @@ class ConfluenceSession:
 
         :returns: Confluence page ID of a matching page (if found), or `None`.
         """
-
-        space_id = self.get_space_id(space_id=space_id, space_key=space_key)
-        path = "/pages"
-        query = {"title": title}
-        if space_id is not None:
-            query["space-id"] = space_id
-
-        LOGGER.info("Checking if page exists with title: %s", title)
-
-        url = self._build_url(ConfluenceVersion.VERSION_2, path)
-        response = self.session.get(
-            url,
-            params=query,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            verify=True,
-        )
-        response.raise_for_status()
-        data = typing.cast(dict[str, JsonType], response.json())
-        results = _json_to_object(list[ConfluencePageProperties], data["results"])
-
-        if len(results) == 1:
-            return results[0].id
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._page_exists_v1(title, space_id=space_id, space_key=space_key)
         else:
-            return None
+            space_id = self.get_space_id(space_id=space_id, space_key=space_key)
+            path = "/pages"
+            query = {"title": title}
+            if space_id is not None:
+                query["space-id"] = space_id
+
+            LOGGER.info("Checking if page exists with title: %s", title)
+
+            url = self._build_url(ConfluenceVersion.VERSION_2, path)
+            response = self.session.get(
+                url,
+                params=query,
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                verify=True,
+            )
+            response.raise_for_status()
+            data = typing.cast(dict[str, JsonType], response.json())
+            results = _json_to_object(list[ConfluencePageProperties], data["results"])
+
+            if len(results) == 1:
+                return results[0].id
+            else:
+                return None
 
     def get_or_create_page(self, title: str, parent_id: str) -> ConfluencePage:
         """
