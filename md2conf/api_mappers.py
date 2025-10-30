@@ -241,17 +241,39 @@ def map_attachment_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceA
 
     Returns:
         ConfluenceAttachment object with mapped fields
-
-    Note:
-        TODO: Implement v1 attachment mapping
     """
-    # TODO: Extract and map attachment fields from v1 response
-    # - Extract id, title, mediaType, fileSize
-    # - Map _links structure to webuiLink and downloadLink
-    # - Extract version information
-    # - Extract pageId from container or metadata
-    # - Map other metadata fields
-    raise NotImplementedError("TODO: Implement v1 attachment mapper")
+    import typing
+
+    # Extract basic fields
+    attachment_id = str(v1_response["id"])
+    title = str(v1_response["title"])
+    media_type = str(v1_response.get("metadata", {}).get("mediaType", "application/octet-stream"))
+
+    # Extract file size from extensions
+    extensions = typing.cast(Dict[str, JsonType], v1_response.get("extensions", {}))
+    file_size = int(extensions.get("fileSize", 0))
+
+    # Extract pageId from container
+    container = typing.cast(Dict[str, JsonType], v1_response.get("container", {}))
+    page_id = str(container.get("id", ""))
+
+    # Extract links
+    links = typing.cast(Dict[str, JsonType], v1_response.get("_links", {}))
+    webui = str(links.get("webui", ""))
+    download = str(links.get("download", ""))
+
+    # Build ConfluenceAttachment object
+    from .api import ConfluenceAttachment
+
+    return ConfluenceAttachment(
+        id=attachment_id,
+        title=title,
+        mediaType=media_type,
+        fileSize=file_size,
+        webuiLink=webui,
+        downloadLink=download,
+        pageId=page_id
+    )
 
 
 def map_label_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceIdentifiedLabel:

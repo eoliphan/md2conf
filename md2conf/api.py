@@ -772,19 +772,38 @@ class ConfluenceSession:
         # space ID and key are unset, and no default space is configured
         return None
 
+    def _get_attachment_by_name_v1(self, page_id: str, filename: str) -> ConfluenceAttachment:
+        """
+        Retrieves a Confluence page attachment by an unprefixed file name using v1 API.
+
+        v1 API endpoint: GET /rest/api/content/{pageId}/child/attachment?filename={filename}
+        """
+        from .api_mappers import map_attachment_v1_to_domain
+
+        path = f"/content/{page_id}/child/attachment"
+        data = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query={"filename": filename})
+
+        results = typing.cast(list[JsonType], data.get("results", []))
+        if len(results) != 1:
+            raise ConfluenceError(f"no such attachment on page {page_id}: {filename}")
+        result = typing.cast(dict[str, JsonType], results[0])
+        return map_attachment_v1_to_domain(result)
+
     def get_attachment_by_name(self, page_id: str, filename: str) -> ConfluenceAttachment:
         """
         Retrieves a Confluence page attachment by an unprefixed file name.
         """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_attachment_by_name_v1(page_id, filename)
+        else:
+            path = f"/pages/{page_id}/attachments"
+            data = self._get(ConfluenceVersion.VERSION_2, path, dict[str, JsonType], query={"filename": filename})
 
-        path = f"/pages/{page_id}/attachments"
-        data = self._get(ConfluenceVersion.VERSION_2, path, dict[str, JsonType], query={"filename": filename})
-
-        results = typing.cast(list[JsonType], data["results"])
-        if len(results) != 1:
-            raise ConfluenceError(f"no such attachment on page {page_id}: {filename}")
-        result = typing.cast(dict[str, JsonType], results[0])
-        return _json_to_object(ConfluenceAttachment, result)
+            results = typing.cast(list[JsonType], data["results"])
+            if len(results) != 1:
+                raise ConfluenceError(f"no such attachment on page {page_id}: {filename}")
+            result = typing.cast(dict[str, JsonType], results[0])
+            return _json_to_object(ConfluenceAttachment, result)
 
     def upload_attachment(
         self,
