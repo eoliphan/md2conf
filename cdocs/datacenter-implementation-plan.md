@@ -259,24 +259,27 @@ Add REST API v1 support to md2conf to enable compatibility with Confluence Data 
 
 ## Phase 7: Pagination Helper (Est. 1 day)
 
-- [ ] **Task 7.1:** Create `_fetch_v1()` pagination method
+- [x] **Task 7.1:** Create `_fetch_v1()` pagination method
   - Update `md2conf/api.py`:
     - Implement v1 pagination pattern with start/limit parameters
     - Handle `_links.next` in responses
     - Return flattened list of results
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Completed - Created `_fetch_v1()` with start/limit pagination pattern
 
-- [ ] **Task 7.2:** Create version-aware `_fetch()` wrapper
+- [x] **Task 7.2:** Create version-aware `_fetch()` wrapper
   - Update `md2conf/api.py`:
     - Check `self.api_version`
     - Route to `_fetch_v1()` or existing `_fetch()` (v2)
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Completed - Made `_fetch()` version-aware, renamed v2 implementation to `_fetch_v2()`
 
-- [ ] **Task 7.3:** Update all paginated calls
+- [x] **Task 7.3:** Update all paginated calls
   - Update `md2conf/api.py`:
     - Update `get_labels()` to use version-aware fetch
     - Update `get_content_properties_for_page()` to use version-aware fetch
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Completed - Refactored both methods to use unified `_fetch()`, removed duplicate `_get_labels_v1()` and `_get_content_properties_for_page_v1()` methods
 
 ---
 

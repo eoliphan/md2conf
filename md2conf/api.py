@@ -584,7 +584,44 @@ class ConfluenceSession:
         response.raise_for_status()
         return _json_to_object(response_type, response.json())
 
+    def _fetch_v1(self, path: str, query: Optional[dict[str, str]] = None) -> list[JsonType]:
+        "Retrieves all results of a REST API v1 paginated result-set."
+
+        items: list[JsonType] = []
+        start = 0
+        limit = 200
+
+        while True:
+            # Add pagination parameters to query
+            paginated_query = dict(query) if query else {}
+            paginated_query["start"] = str(start)
+            paginated_query["limit"] = str(limit)
+
+            data = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=paginated_query)
+
+            results = typing.cast(list[JsonType], data.get("results", []))
+            items.extend(results)
+
+            # Check if there are more results
+            size = int(data.get("size", 0))
+            if size < limit:
+                break
+            start += limit
+
+        return items
+
     def _fetch(self, path: str, query: Optional[dict[str, str]] = None) -> list[JsonType]:
+        """
+        Retrieves all results of a REST API paginated result-set.
+
+        Routes to v1 or v2 pagination based on api_version.
+        """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._fetch_v1(path, query)
+        else:
+            return self._fetch_v2(path, query)
+
+    def _fetch_v2(self, path: str, query: Optional[dict[str, str]] = None) -> list[JsonType]:
         "Retrieves all results of a REST API v2 paginated result-set."
 
         items: list[JsonType] = []
@@ -1445,40 +1482,6 @@ class ConfluenceSession:
             LOGGER.debug("Creating new page with title: %s", title)
             return self.create_page(parent_id, title, "")
 
-    def _get_labels_v1(self, page_id: str) -> list[ConfluenceIdentifiedLabel]:
-        """
-        Retrieves labels for a Confluence page using v1 API with pagination.
-
-        v1 API endpoint: GET /rest/api/content/{pageId}/label
-
-        :param page_id: The Confluence page ID.
-        :returns: A list of page labels.
-        """
-        from .api_mappers import map_label_v1_to_domain
-
-        # v1 API pagination
-        items: list[ConfluenceIdentifiedLabel] = []
-        start = 0
-        limit = 200
-        path = f"/content/{page_id}/label"
-
-        while True:
-            query = {"start": str(start), "limit": str(limit)}
-            data = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
-
-            results = typing.cast(list[JsonType], data.get("results", []))
-            for result in results:
-                result_dict = typing.cast(dict[str, JsonType], result)
-                items.append(map_label_v1_to_domain(result_dict))
-
-            # Check if there are more results
-            size = int(data.get("size", 0))
-            if size < limit:
-                break
-            start += limit
-
-        return items
-
     def get_labels(self, page_id: str) -> list[ConfluenceIdentifiedLabel]:
         """
         Retrieves labels for a Confluence page.
@@ -1487,7 +1490,11 @@ class ConfluenceSession:
         :returns: A list of page labels.
         """
         if self.api_version == ConfluenceVersion.VERSION_1:
-            return self._get_labels_v1(page_id)
+            from .api_mappers import map_label_v1_to_domain
+
+            path = f"/content/{page_id}/label"
+            results = self._fetch(path)
+            return [map_label_v1_to_domain(typing.cast(dict[str, JsonType], item)) for item in results]
         else:
             path = f"/pages/{page_id}/labels"
             results = self._fetch(path)
@@ -1543,40 +1550,6 @@ class ConfluenceSession:
             remove_labels.sort()
             self.remove_labels(page_id, remove_labels)
 
-    def _get_content_properties_for_page_v1(self, page_id: str) -> list[ConfluenceIdentifiedContentProperty]:
-        """
-        Retrieves content properties for a Confluence page using v1 API with pagination.
-
-        v1 API endpoint: GET /rest/api/content/{pageId}/property
-
-        :param page_id: The Confluence page ID.
-        :returns: A list of content properties.
-        """
-        from .api_mappers import map_property_v1_to_domain
-
-        # v1 API pagination
-        items: list[ConfluenceIdentifiedContentProperty] = []
-        start = 0
-        limit = 200
-        path = f"/content/{page_id}/property"
-
-        while True:
-            query = {"start": str(start), "limit": str(limit)}
-            data = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
-
-            results = typing.cast(list[JsonType], data.get("results", []))
-            for result in results:
-                result_dict = typing.cast(dict[str, JsonType], result)
-                items.append(map_property_v1_to_domain(result_dict))
-
-            # Check if there are more results
-            size = int(data.get("size", 0))
-            if size < limit:
-                break
-            start += limit
-
-        return items
-
     def _add_content_property_to_page_v1(self, page_id: str, property: ConfluenceContentProperty) -> ConfluenceIdentifiedContentProperty:
         """
         Adds a new content property to a Confluence page using v1 API.
@@ -1616,7 +1589,7 @@ class ConfluenceSession:
         """
         # First, get all properties to find the key for this ID
         # Limitation: v1 API requires key not ID, so we must look it up
-        properties = self._get_content_properties_for_page_v1(page_id)
+        properties = self.get_content_properties_for_page(page_id)
 
         # Find the property with matching ID
         property_key = None
@@ -1642,7 +1615,11 @@ class ConfluenceSession:
         :returns: A list of content properties.
         """
         if self.api_version == ConfluenceVersion.VERSION_1:
-            return self._get_content_properties_for_page_v1(page_id)
+            from .api_mappers import map_property_v1_to_domain
+
+            path = f"/content/{page_id}/property"
+            results = self._fetch(path)
+            return [map_property_v1_to_domain(typing.cast(dict[str, JsonType], item)) for item in results]
         else:
             path = f"/pages/{page_id}/properties"
             results = self._fetch(path)
@@ -1699,7 +1676,7 @@ class ConfluenceSession:
 
         # First, get all properties to find the key for this ID
         # Limitation: v1 API requires key not ID, so we must look it up
-        properties = self._get_content_properties_for_page_v1(page_id)
+        properties = self.get_content_properties_for_page(page_id)
 
         # Find the property with matching ID
         property_key = None
