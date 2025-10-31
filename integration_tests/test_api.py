@@ -21,6 +21,7 @@ from md2conf.collection import ConfluencePageCollection
 from md2conf.converter import ConfluenceDocument, NodeVisitor, get_volatile_attributes, get_volatile_elements
 from md2conf.csf import elements_from_string, elements_to_string
 from md2conf.domain import ConfluenceDocumentOptions, ConfluencePageID
+from md2conf.environment import ConfluenceVersion
 from md2conf.extra import override
 from md2conf.metadata import ConfluenceSiteMetadata
 from md2conf.publisher import Publisher
@@ -119,6 +120,13 @@ class TestAPI(TypedTestCase):
         with ConfluenceAPI() as api:
             page = api.get_page_properties_by_title(TEST_PAGE_TITLE)
             self.assertEqual(page.id, FEATURE_TEST_PAGE_ID.page_id)
+
+    def test_cloud_uses_v2_api(self) -> None:
+        """Regression test: Confluence Cloud should use REST API v2 by default."""
+        with ConfluenceAPI() as api:
+            # Cloud instances should auto-detect and use v2 API
+            # unless explicitly overridden with deployment_type=datacenter
+            self.assertEqual(api.session.api_version, ConfluenceVersion.VERSION_2)
 
     def test_get_page(self) -> None:
         with ConfluenceAPI() as api:

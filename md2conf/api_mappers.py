@@ -42,7 +42,7 @@ def map_page_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePage:
     """
     import typing
 
-    from .api import ConfluencePageBody, ConfluencePageBodyRepresentation, ConfluencePageVersion
+    from .api import ConfluenceContentVersion, ConfluencePageBody, ConfluencePageStorage
 
     # Extract basic fields
     page_id = str(v1_response["id"])
@@ -78,12 +78,12 @@ def map_page_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePage:
         status=status,
         title=title,
         body=ConfluencePageBody(
-            storage=ConfluencePageBodyRepresentation(
+            storage=ConfluencePageStorage(
                 value=body_value,
                 representation=body_representation
             )
         ),
-        version=ConfluencePageVersion(number=version_number)
+        version=ConfluenceContentVersion(number=version_number)
     )
 
 
@@ -101,7 +101,7 @@ def map_page_properties_v1_to_domain(v1_response: Dict[str, JsonType]) -> Conflu
     """
     import typing
 
-    from .api import ConfluencePageVersion
+    from .api import ConfluenceContentVersion
 
     # Extract basic fields
     page_id = str(v1_response["id"])
@@ -130,7 +130,7 @@ def map_page_properties_v1_to_domain(v1_response: Dict[str, JsonType]) -> Conflu
         parentId=parent_id,
         status=status,
         title=title,
-        version=ConfluencePageVersion(number=version_number)
+        version=ConfluenceContentVersion(number=version_number)
     )
 
 

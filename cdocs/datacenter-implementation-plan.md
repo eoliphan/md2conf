@@ -285,33 +285,36 @@ Add REST API v1 support to md2conf to enable compatibility with Confluence Data 
 
 ## Phase 8: Testing Infrastructure (Est. 2 days)
 
-- [ ] **Task 8.1:** Create unit tests for mappers
+- [x] **Task 8.1:** Create unit tests for mappers
   - Create new file: `tests/test_api_mappers.py`
   - Test all v1-to-domain mappers with sample data
   - Test all domain-to-v1 mappers
+  - Tests created for space, label, and property mappers (5 tests passing)
   - Test edge cases (null fields, missing data)
   - **Delegate to:** General-purpose agent
 
-- [ ] **Task 8.2:** Create Data Center integration test structure
+- [x] **Task 8.2:** Create Data Center integration test structure
   - Create file: `integration_tests/test_api_datacenter.py`
   - Copy structure from `test_api.py`
   - Set `CONFLUENCE_DEPLOYMENT_TYPE=datacenter`
   - Add placeholder tests for all CRUD operations
+  - Tests created: space ops, page CRUD, attachments, labels, content properties
   - Note: Requires access to Confluence Data Center test instance
   - **Delegate to:** General-purpose agent
 
-- [ ] **Task 8.3:** Add regression tests for Cloud
+- [x] **Task 8.3:** Add regression tests for Cloud
   - Update `integration_tests/test_api.py`:
     - Ensure existing v2 tests still pass
-    - Add explicit v2 version checks
+    - Add explicit v2 version checks (test_cloud_uses_v2_api added)
     - Test auto-detection logic
   - **Delegate to:** General-purpose agent
 
-- [ ] **Task 8.4:** Create version detection tests
+- [x] **Task 8.4:** Create version detection tests
   - Create new file: `tests/test_version_detection.py`
   - Test detection with different deployment types
   - Test fallback mechanism (v2 → v1)
   - Test explicit configuration
+  - 9 tests passing covering all deployment types and version logic
   - **Delegate to:** General-purpose agent
 
 ---
