@@ -32,7 +32,65 @@ This Python package
 * [Mermaid diagrams](https://mermaid.live/)
 * Confluence status labels and date widget
 
-Whenever possible, the implementation uses [Confluence REST API v2](https://developer.atlassian.com/cloud/confluence/rest/v2/) to fetch space properties, and get, create or update page content.
+Whenever possible, the implementation uses [Confluence REST API v2](https://developer.atlassian.com/cloud/confluence/rest/v2/) for Confluence Cloud, and automatically falls back to [Confluence REST API v1](https://developer.atlassian.com/cloud/confluence/rest/v1/) for Confluence Data Center and Server deployments.
+
+## Confluence Data Center and Server Support
+
+This package supports both **Confluence Cloud** and **Confluence Data Center/Server** deployments:
+
+* **Confluence Cloud**: Uses REST API v2 (default)
+* **Confluence Data Center**: Uses REST API v1 (auto-detected or explicitly configured)
+* **Confluence Server**: Uses REST API v1 (explicitly configured)
+
+### Deployment Type Configuration
+
+You can specify the deployment type using an environment variable or command-line flag:
+
+**Environment variable:**
+```sh
+export CONFLUENCE_DEPLOYMENT_TYPE='datacenter'  # or 'server' or 'cloud'
+```
+
+**Command-line flag:**
+```sh
+python -m md2conf --deployment-type datacenter path/to/file.md
+```
+
+### Auto-Detection
+
+If no deployment type is specified, md2conf will:
+* Use **REST API v2** for `*.atlassian.net` domains (Confluence Cloud)
+* Use **REST API v1** for all other domains (self-hosted Data Center/Server)
+
+### Known Limitations
+
+When using Confluence Data Center or Server (REST API v1):
+* Some advanced features available in v2 may not be available
+* Page creation/update uses v1 endpoints with space keys instead of space IDs
+* Property and label operations use v1 pagination (start/limit instead of cursor-based)
+
+### Example Usage for Data Center
+
+```sh
+# Using environment variable
+export CONFLUENCE_DOMAIN='confluence.company.com'
+export CONFLUENCE_PATH='/wiki/'
+export CONFLUENCE_USER_NAME='username'
+export CONFLUENCE_API_KEY='your-api-key'
+export CONFLUENCE_SPACE_KEY='SPACE'
+export CONFLUENCE_DEPLOYMENT_TYPE='datacenter'
+
+python -m md2conf path/to/file.md
+
+# Or using command-line flag
+python -m md2conf --deployment-type datacenter \
+  -d confluence.company.com \
+  -p /wiki/ \
+  -u username \
+  -a your-api-key \
+  -s SPACE \
+  path/to/file.md
+```
 
 ## Installation
 

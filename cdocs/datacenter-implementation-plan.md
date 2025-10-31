@@ -321,7 +321,7 @@ Add REST API v1 support to md2conf to enable compatibility with Confluence Data 
 
 ## Phase 9: Documentation (Est. 1 day)
 
-- [ ] **Task 9.1:** Update README.md with Data Center support
+- [x] **Task 9.1:** Update README.md with Data Center support
   - Update `README.md`:
     - Add "Confluence Data Center Support" section
     - Document `CONFLUENCE_DEPLOYMENT_TYPE` environment variable
@@ -331,21 +331,21 @@ Add REST API v1 support to md2conf to enable compatibility with Confluence Data 
     - Add example usage for Data Center
   - **Delegate to:** General-purpose agent
 
-- [ ] **Task 9.2:** Update CLAUDE.md with architecture changes
+- [x] **Task 9.2:** Update CLAUDE.md with architecture changes
   - Update `CLAUDE.md`:
     - Document new architecture (version detection, routing)
     - Add notes about api_mappers.py module
     - Document testing requirements for both deployment types
   - **Delegate to:** General-purpose agent
 
-- [ ] **Task 9.3:** Create migration guide
+- [x] **Task 9.3:** Create migration guide
   - Create new file: `cdocs/datacenter-migration.md`
   - Guide for users migrating from Cloud to Data Center
   - Document configuration changes needed
   - List known differences and workarounds
   - **Delegate to:** General-purpose agent
 
-- [ ] **Task 9.4:** Update CONTRIBUTING.md
+- [x] **Task 9.4:** Update CONTRIBUTING.md
   - Update `CONTRIBUTING.md`:
     - Add notes about testing with Data Center
     - Document how to run tests for both versions

@@ -46,6 +46,7 @@ python -m unittest discover -s tests
 
 Before running these tests, you must set up your environment variables (e.g. add to your `~/.profile` on Linux, or `~/.bash_profile` or `~/.zshenv` on MacOS, or *System properties* on Windows.):
 
+**For Confluence Cloud:**
 ```bash
 CONFLUENCE_DOMAIN='<your domain>.atlassian.net'
 CONFLUENCE_PATH='/wiki/'
@@ -54,10 +55,29 @@ CONFLUENCE_API_KEY='0123456789abcdef'
 CONFLUENCE_SPACE_KEY='<your space key>'
 ```
 
+**For Confluence Data Center/Server:**
+```bash
+CONFLUENCE_DEPLOYMENT_TYPE='datacenter'  # or 'server'
+CONFLUENCE_DOMAIN='confluence.company.com'
+CONFLUENCE_PATH='/wiki/'
+CONFLUENCE_USER_NAME='<your username>'
+CONFLUENCE_API_KEY='<your api key>'
+CONFLUENCE_SPACE_KEY='<your space key>'
+```
+
 Running the tests:
-```
+```bash
+# Run all integration tests (Cloud)
 python -m unittest discover -s integration_tests
+
+# Run Data Center-specific tests
+python -m unittest integration_tests.test_api_datacenter
+
+# Run Cloud-specific tests
+python -m unittest integration_tests.test_api
 ```
+
+**Note**: When contributing features or bug fixes, ensure you test both Cloud (v2 API) and Data Center (v1 API) when possible. The `test_api.py` suite tests Cloud/v2, while `test_api_datacenter.py` tests Data Center/v1.
 
 ### Running static code checks
 
