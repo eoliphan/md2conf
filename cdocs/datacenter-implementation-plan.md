@@ -214,41 +214,46 @@ Add REST API v1 support to md2conf to enable compatibility with Confluence Data 
 
 ## Phase 6: Content Properties (Est. 2 days)
 
-- [ ] **Task 6.1:** Implement `get_content_properties_for_page_v1()`
+- [x] **Task 6.1:** Implement `get_content_properties_for_page_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `GET /rest/api/content/{pageId}/property`
     - Use v1 pagination helper
     - Map to ConfluenceIdentifiedContentProperty
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Completed - Added `_get_content_properties_for_page_v1()` with pagination and updated `get_content_properties_for_page()` to route to v1. Also completed `map_property_v1_to_domain()` in api_mappers.py.
 
-- [ ] **Task 6.2:** Implement `add_content_property_to_page_v1()`
+- [x] **Task 6.2:** Implement `add_content_property_to_page_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `POST /rest/api/content/{pageId}/property`
     - Map domain object to v1 request format
     - Map response to domain object
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Completed - Added `_add_content_property_to_page_v1()` and updated `add_content_property_to_page()` to route to v1.
 
-- [ ] **Task 6.3:** Implement `remove_content_property_from_page_v1()`
+- [x] **Task 6.3:** Implement `remove_content_property_from_page_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `DELETE /rest/api/content/{pageId}/property/{key}`
     - Critical: v1 uses property `key` not `property_id`
     - Track key-to-id mapping
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Completed - Added `_remove_content_property_from_page_v1()` that looks up key from ID and updated `remove_content_property_from_page()` to route to v1.
 
-- [ ] **Task 6.4:** Implement `update_content_property_for_page_v1()`
+- [x] **Task 6.4:** Implement `update_content_property_for_page_v1()`
   - Update `md2conf/api.py`:
     - Endpoint: `PUT /rest/api/content/{pageId}/property/{key}`
     - Use property key not ID
     - Handle version number correctly
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Completed - Added `_update_content_property_for_page_v1()` that looks up key from ID and updated `update_content_property_for_page()` to route to v1.
 
-- [ ] **Task 6.5:** Handle property key vs ID abstraction
+- [x] **Task 6.5:** Handle property key vs ID abstraction
   - Update `md2conf/api.py`:
     - Add key-to-id mapping for content properties
     - Update property data structures if needed
     - Add version routing to all property methods
     - Document limitation in code comments
   - **Delegate to:** General-purpose agent
+  - **Status:** ✅ Completed - Key-to-ID lookup implemented in remove/update methods. Version routing added to all property methods. Performance considerations documented in docstrings.
 
 ---
 

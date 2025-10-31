@@ -41,6 +41,7 @@ def map_page_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePage:
         ConfluencePage object with mapped fields
     """
     import typing
+
     from .api import ConfluencePageBody, ConfluencePageBodyRepresentation, ConfluencePageVersion
 
     # Extract basic fields
@@ -99,6 +100,7 @@ def map_page_properties_v1_to_domain(v1_response: Dict[str, JsonType]) -> Conflu
         ConfluencePageProperties object with mapped fields
     """
     import typing
+
     from .api import ConfluencePageVersion
 
     # Extract basic fields
@@ -208,7 +210,7 @@ def map_update_page_to_v1(page_id: str, request: ConfluenceUpdatePageRequest, sp
     }
 
     # Add minorEdit if provided
-    if hasattr(request.version, 'minorEdit') and request.version.minorEdit is not None:
+    if hasattr(request.version, "minorEdit") and request.version.minorEdit is not None:
         v1_request["version"]["minorEdit"] = request.version.minorEdit  # type: ignore
 
     return v1_request
@@ -320,13 +322,23 @@ def map_property_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceIde
 
     Returns:
         ConfluenceIdentifiedContentProperty object with mapped fields
-
-    Note:
-        TODO: Implement v1 content property mapping
     """
-    # TODO: Extract content property fields from v1 response
-    # - Extract id from v1_response["id"]
-    # - Extract key from v1_response["key"]
-    # - Extract value from v1_response["value"]
-    # - Extract version.number from v1_response["version"]["number"]
-    raise NotImplementedError("TODO: Implement v1 content property mapper")
+    import typing
+
+    from .api import ConfluenceContentVersion
+
+    # Extract property fields
+    property_id = str(v1_response["id"])
+    key = str(v1_response["key"])
+    value = v1_response["value"]
+
+    # Extract version number
+    version_dict = typing.cast(Dict[str, JsonType], v1_response.get("version", {}))
+    version_number = int(version_dict.get("number", 1))
+
+    return ConfluenceIdentifiedContentProperty(
+        id=property_id,
+        key=key,
+        value=value,
+        version=ConfluenceContentVersion(number=version_number)
+    )

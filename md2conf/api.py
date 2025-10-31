@@ -1543,6 +1543,97 @@ class ConfluenceSession:
             remove_labels.sort()
             self.remove_labels(page_id, remove_labels)
 
+    def _get_content_properties_for_page_v1(self, page_id: str) -> list[ConfluenceIdentifiedContentProperty]:
+        """
+        Retrieves content properties for a Confluence page using v1 API with pagination.
+
+        v1 API endpoint: GET /rest/api/content/{pageId}/property
+
+        :param page_id: The Confluence page ID.
+        :returns: A list of content properties.
+        """
+        from .api_mappers import map_property_v1_to_domain
+
+        # v1 API pagination
+        items: list[ConfluenceIdentifiedContentProperty] = []
+        start = 0
+        limit = 200
+        path = f"/content/{page_id}/property"
+
+        while True:
+            query = {"start": str(start), "limit": str(limit)}
+            data = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
+
+            results = typing.cast(list[JsonType], data.get("results", []))
+            for result in results:
+                result_dict = typing.cast(dict[str, JsonType], result)
+                items.append(map_property_v1_to_domain(result_dict))
+
+            # Check if there are more results
+            size = int(data.get("size", 0))
+            if size < limit:
+                break
+            start += limit
+
+        return items
+
+    def _add_content_property_to_page_v1(self, page_id: str, property: ConfluenceContentProperty) -> ConfluenceIdentifiedContentProperty:
+        """
+        Adds a new content property to a Confluence page using v1 API.
+
+        v1 API endpoint: POST /rest/api/content/{pageId}/property
+
+        :param page_id: The Confluence page ID.
+        :param property: Content property to add.
+        :returns: The created content property with ID.
+        """
+        from .api_mappers import map_property_v1_to_domain
+
+        path = f"/content/{page_id}/property"
+
+        # v1 API expects the property object directly
+        request_body = {
+            "key": property.key,
+            "value": property.value
+        }
+
+        response_data = self._post(ConfluenceVersion.VERSION_1, path, request_body, dict[str, JsonType])
+        return map_property_v1_to_domain(response_data)
+
+    def _remove_content_property_from_page_v1(self, page_id: str, property_id: str) -> None:
+        """
+        Removes a content property from a Confluence page using v1 API.
+
+        v1 API endpoint: DELETE /rest/api/content/{pageId}/property/{key}
+
+        Note: v1 API uses property key in URL, not property ID. We need to look up the key first.
+        This requires an additional API call to fetch all properties and find the matching ID.
+
+        Performance consideration: This adds one extra GET request per delete operation.
+
+        :param page_id: The Confluence page ID.
+        :param property_id: Property ID, which uniquely identifies the property.
+        """
+        # First, get all properties to find the key for this ID
+        # Limitation: v1 API requires key not ID, so we must look it up
+        properties = self._get_content_properties_for_page_v1(page_id)
+
+        # Find the property with matching ID
+        property_key = None
+        for prop in properties:
+            if prop.id == property_id:
+                property_key = prop.key
+                break
+
+        if property_key is None:
+            raise PageError(f"Property with ID {property_id} not found on page {page_id}")
+
+        # Now delete using the key
+        path = f"/content/{page_id}/property/{property_key}"
+        url = self._build_url(ConfluenceVersion.VERSION_1, path)
+        response = self.session.delete(url, verify=True)
+        response.raise_for_status()
+
     def get_content_properties_for_page(self, page_id: str) -> list[ConfluenceIdentifiedContentProperty]:
         """
         Retrieves content properties for a Confluence page.
@@ -1550,10 +1641,12 @@ class ConfluenceSession:
         :param page_id: The Confluence page ID.
         :returns: A list of content properties.
         """
-
-        path = f"/pages/{page_id}/properties"
-        results = self._fetch(path)
-        return _json_to_object(list[ConfluenceIdentifiedContentProperty], results)
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_content_properties_for_page_v1(page_id)
+        else:
+            path = f"/pages/{page_id}/properties"
+            results = self._fetch(path)
+            return _json_to_object(list[ConfluenceIdentifiedContentProperty], results)
 
     def add_content_property_to_page(self, page_id: str, property: ConfluenceContentProperty) -> ConfluenceIdentifiedContentProperty:
         """
@@ -1562,9 +1655,11 @@ class ConfluenceSession:
         :param page_id: The Confluence page ID.
         :param property: Content property to add.
         """
-
-        path = f"/pages/{page_id}/properties"
-        return self._post(ConfluenceVersion.VERSION_2, path, property, ConfluenceIdentifiedContentProperty)
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._add_content_property_to_page_v1(page_id, property)
+        else:
+            path = f"/pages/{page_id}/properties"
+            return self._post(ConfluenceVersion.VERSION_2, path, property, ConfluenceIdentifiedContentProperty)
 
     def remove_content_property_from_page(self, page_id: str, property_id: str) -> None:
         """
@@ -1573,11 +1668,61 @@ class ConfluenceSession:
         :param page_id: The Confluence page ID.
         :param property_id: Property ID, which uniquely identifies the property.
         """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            self._remove_content_property_from_page_v1(page_id, property_id)
+        else:
+            path = f"/pages/{page_id}/properties/{property_id}"
+            url = self._build_url(ConfluenceVersion.VERSION_2, path)
+            response = self.session.delete(url, verify=True)
+            response.raise_for_status()
 
-        path = f"/pages/{page_id}/properties/{property_id}"
-        url = self._build_url(ConfluenceVersion.VERSION_2, path)
-        response = self.session.delete(url, verify=True)
-        response.raise_for_status()
+    def _update_content_property_for_page_v1(
+        self, page_id: str, property_id: str, version: int, property: ConfluenceContentProperty
+    ) -> ConfluenceIdentifiedContentProperty:
+        """
+        Updates an existing content property associated with a Confluence page using v1 API.
+
+        v1 API endpoint: PUT /rest/api/content/{pageId}/property/{key}
+
+        Note: v1 API uses property key in URL, not property ID. We need to look up the key first.
+        This requires an additional API call to fetch all properties and find the matching ID.
+
+        Performance consideration: This adds one extra GET request per update operation.
+
+        :param page_id: The Confluence page ID.
+        :param property_id: Property ID, which uniquely identifies the property.
+        :param version: Version number to assign.
+        :param property: Content property data to assign.
+        :returns: Updated content property data.
+        """
+        from .api_mappers import map_property_v1_to_domain
+
+        # First, get all properties to find the key for this ID
+        # Limitation: v1 API requires key not ID, so we must look it up
+        properties = self._get_content_properties_for_page_v1(page_id)
+
+        # Find the property with matching ID
+        property_key = None
+        for prop in properties:
+            if prop.id == property_id:
+                property_key = prop.key
+                break
+
+        if property_key is None:
+            raise PageError(f"Property with ID {property_id} not found on page {page_id}")
+
+        # v1 API expects key, value, and version
+        request_body = {
+            "key": property.key,
+            "value": property.value,
+            "version": {
+                "number": version
+            }
+        }
+
+        path = f"/content/{page_id}/property/{property_key}"
+        response_data = self._put(ConfluenceVersion.VERSION_1, path, request_body, dict[str, JsonType])
+        return map_property_v1_to_domain(response_data)
 
     def update_content_property_for_page(
         self, page_id: str, property_id: str, version: int, property: ConfluenceContentProperty
@@ -1591,18 +1736,20 @@ class ConfluenceSession:
         :param property: Content property data to assign.
         :returns: Updated content property data.
         """
-
-        path = f"/pages/{page_id}/properties/{property_id}"
-        return self._put(
-            ConfluenceVersion.VERSION_2,
-            path,
-            ConfluenceVersionedContentProperty(
-                key=property.key,
-                value=property.value,
-                version=ConfluenceContentVersion(number=version),
-            ),
-            ConfluenceIdentifiedContentProperty,
-        )
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._update_content_property_for_page_v1(page_id, property_id, version, property)
+        else:
+            path = f"/pages/{page_id}/properties/{property_id}"
+            return self._put(
+                ConfluenceVersion.VERSION_2,
+                path,
+                ConfluenceVersionedContentProperty(
+                    key=property.key,
+                    value=property.value,
+                    version=ConfluenceContentVersion(number=version),
+                ),
+                ConfluenceIdentifiedContentProperty,
+            )
 
     def update_content_properties_for_page(self, page_id: str, properties: list[ConfluenceContentProperty], *, keep_existing: bool = False) -> None:
         """
