@@ -55,18 +55,12 @@ def get_datacenter_connection() -> Optional[ConfluenceConnectionProperties]:
         return None
 
     return ConfluenceConnectionProperties(
-        domain=domain,
-        base_path=base_path,
-        user_name=username,
-        api_key=api_key,
-        space_key=space_key,
-        deployment_type="datacenter"
+        domain=domain, base_path=base_path, user_name=username, api_key=api_key, space_key=space_key, deployment_type="datacenter"
     )
 
 
 @unittest.skipUnless(
-    get_datacenter_connection() is not None,
-    "Data Center integration tests require CONFLUENCE_DEPLOYMENT_TYPE=datacenter and connection environment variables"
+    get_datacenter_connection() is not None, "Data Center integration tests require CONFLUENCE_DEPLOYMENT_TYPE=datacenter and connection environment variables"
 )
 class TestDataCenterAPI(TypedTestCase):
     """Test suite for Confluence Data Center REST API v1 operations."""
@@ -84,8 +78,7 @@ class TestDataCenterAPI(TypedTestCase):
         cls.space_key = props.space_key
 
         # Verify we're actually using v1 API
-        assert cls.session.api_version == ConfluenceVersion.VERSION_1, \
-            f"Expected VERSION_1 but got {cls.session.api_version}"
+        assert cls.session.api_version == ConfluenceVersion.VERSION_1, f"Expected VERSION_1 but got {cls.session.api_version}"
 
         logging.info(f"Data Center tests initialized with space: {cls.space_key}")
 
@@ -112,12 +105,9 @@ class TestDataCenterAPI(TypedTestCase):
         request = ConfluenceCreatePageRequest(
             title="Data Center API Test Page",
             body=ConfluencePageBody(
-                storage=ConfluencePageStorage(
-                    value="<p>This is a test page created by the Data Center integration tests.</p>",
-                    representation="storage"
-                )
+                storage=ConfluencePageStorage(value="<p>This is a test page created by the Data Center integration tests.</p>", representation="storage")
             ),
-            status="current"
+            status="current",
         )
 
         created_page = self.session.create_page(request)
@@ -130,23 +120,13 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_page_update(self) -> None:
         """Test updating a page using v1 API."""
-        from md2conf.api import (
-            ConfluenceCreatePageRequest,
-            ConfluencePageBody,
-            ConfluencePageStorage,
-            ConfluenceUpdatePageRequest
-        )
+        from md2conf.api import ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage, ConfluenceUpdatePageRequest
 
         # Create a test page
         create_request = ConfluenceCreatePageRequest(
             title="Data Center Update Test",
-            body=ConfluencePageBody(
-                storage=ConfluencePageStorage(
-                    value="<p>Original content</p>",
-                    representation="storage"
-                )
-            ),
-            status="current"
+            body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Original content</p>", representation="storage")),
+            status="current",
         )
         created_page = self.session.create_page(create_request)
 
@@ -154,14 +134,9 @@ class TestDataCenterAPI(TypedTestCase):
             # Update the page
             update_request = ConfluenceUpdatePageRequest(
                 title="Data Center Update Test - Updated",
-                body=ConfluencePageBody(
-                    storage=ConfluencePageStorage(
-                        value="<p>Updated content</p>",
-                        representation="storage"
-                    )
-                ),
+                body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Updated content</p>", representation="storage")),
                 version=created_page.version,
-                status="current"
+                status="current",
             )
 
             updated_page = self.session.update_page(created_page.id, update_request)
@@ -173,26 +148,22 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_attachment_operations(self) -> None:
         """Test attachment upload and retrieval using v1 API."""
-        from md2conf.api import ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage
         import tempfile
         from pathlib import Path
+
+        from md2conf.api import ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage
 
         # Create a test page
         create_request = ConfluenceCreatePageRequest(
             title="Data Center Attachment Test",
-            body=ConfluencePageBody(
-                storage=ConfluencePageStorage(
-                    value="<p>Page for testing attachments</p>",
-                    representation="storage"
-                )
-            ),
-            status="current"
+            body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Page for testing attachments</p>", representation="storage")),
+            status="current",
         )
         created_page = self.session.create_page(create_request)
 
         try:
             # Create a temporary file to upload
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as temp_file:
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as temp_file:
                 temp_file.write("Test attachment content")
                 temp_path = Path(temp_file.name)
 
@@ -215,18 +186,13 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_label_operations(self) -> None:
         """Test adding, retrieving, and removing labels using v1 API."""
-        from md2conf.api import ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage, ConfluenceLabel
+        from md2conf.api import ConfluenceCreatePageRequest, ConfluenceLabel, ConfluencePageBody, ConfluencePageStorage
 
         # Create a test page
         create_request = ConfluenceCreatePageRequest(
             title="Data Center Label Test",
-            body=ConfluencePageBody(
-                storage=ConfluencePageStorage(
-                    value="<p>Page for testing labels</p>",
-                    representation="storage"
-                )
-            ),
-            status="current"
+            body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Page for testing labels</p>", representation="storage")),
+            status="current",
         )
         created_page = self.session.create_page(create_request)
 
@@ -261,32 +227,19 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_content_property_operations(self) -> None:
         """Test content property CRUD operations using v1 API."""
-        from md2conf.api import (
-            ConfluenceCreatePageRequest,
-            ConfluencePageBody,
-            ConfluencePageStorage,
-            ConfluenceContentProperty
-        )
+        from md2conf.api import ConfluenceContentProperty, ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage
 
         # Create a test page
         create_request = ConfluenceCreatePageRequest(
             title="Data Center Property Test",
-            body=ConfluencePageBody(
-                storage=ConfluencePageStorage(
-                    value="<p>Page for testing content properties</p>",
-                    representation="storage"
-                )
-            ),
-            status="current"
+            body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Page for testing content properties</p>", representation="storage")),
+            status="current",
         )
         created_page = self.session.create_page(create_request)
 
         try:
             # Add property
-            prop = ConfluenceContentProperty(
-                key="test-property",
-                value={"data": "test value", "number": 42}
-            )
+            prop = ConfluenceContentProperty(key="test-property", value={"data": "test value", "number": 42})
             added_prop = self.session.add_content_property_to_page(created_page.id, prop)
             self.assertEqual(added_prop.key, "test-property")
             self.assertEqual(added_prop.value["data"], "test value")  # type: ignore
@@ -297,11 +250,7 @@ class TestDataCenterAPI(TypedTestCase):
             self.assertIn("test-property", prop_keys)
 
             # Update property
-            updated_prop = self.session.update_content_property_for_page(
-                created_page.id,
-                added_prop.id,
-                {"data": "updated value", "number": 100}
-            )
+            updated_prop = self.session.update_content_property_for_page(created_page.id, added_prop.id, {"data": "updated value", "number": 100})
             self.assertEqual(updated_prop.value["data"], "updated value")  # type: ignore
             self.assertEqual(updated_prop.value["number"], 100)  # type: ignore
 

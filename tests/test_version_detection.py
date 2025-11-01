@@ -7,7 +7,6 @@ Copyright 2022-2025, Levente Hunyadi
 """
 
 import unittest
-from unittest.mock import MagicMock, patch
 
 from md2conf.api import ConfluenceVersion
 from md2conf.environment import ConfluenceConnectionProperties
@@ -20,12 +19,7 @@ class TestVersionDetection(TypedTestCase):
     def test_datacenter_deployment_forces_v1(self) -> None:
         """Test that deployment_type=datacenter forces v1 API usage."""
         props = ConfluenceConnectionProperties(
-            domain="datacenter.example.com",
-            base_path="/wiki/",
-            user_name="user",
-            api_key="key",
-            space_key="TEST",
-            deployment_type="datacenter"
+            domain="datacenter.example.com", base_path="/wiki/", user_name="user", api_key="key", space_key="TEST", deployment_type="datacenter"
         )
 
         self.assertEqual(props.deployment_type, "datacenter")
@@ -33,12 +27,7 @@ class TestVersionDetection(TypedTestCase):
     def test_server_deployment_forces_v1(self) -> None:
         """Test that deployment_type=server forces v1 API usage."""
         props = ConfluenceConnectionProperties(
-            domain="server.example.com",
-            base_path="/wiki/",
-            user_name="user",
-            api_key="key",
-            space_key="TEST",
-            deployment_type="server"
+            domain="server.example.com", base_path="/wiki/", user_name="user", api_key="key", space_key="TEST", deployment_type="server"
         )
 
         self.assertEqual(props.deployment_type, "server")
@@ -46,25 +35,14 @@ class TestVersionDetection(TypedTestCase):
     def test_cloud_deployment_uses_v2(self) -> None:
         """Test that deployment_type=cloud uses v2 API."""
         props = ConfluenceConnectionProperties(
-            domain="example.atlassian.net",
-            base_path="/wiki/",
-            user_name="user",
-            api_key="key",
-            space_key="TEST",
-            deployment_type="cloud"
+            domain="example.atlassian.net", base_path="/wiki/", user_name="user", api_key="key", space_key="TEST", deployment_type="cloud"
         )
 
         self.assertEqual(props.deployment_type, "cloud")
 
     def test_auto_detection_default(self) -> None:
         """Test auto-detection with default settings (no deployment_type specified)."""
-        props = ConfluenceConnectionProperties(
-            domain="example.atlassian.net",
-            base_path="/wiki/",
-            user_name="user",
-            api_key="key",
-            space_key="TEST"
-        )
+        props = ConfluenceConnectionProperties(domain="example.atlassian.net", base_path="/wiki/", user_name="user", api_key="key", space_key="TEST")
 
         # When deployment_type is not specified, it defaults to "cloud"
         self.assertIsNone(props.deployment_type)

@@ -72,9 +72,7 @@ def _validate_deployment_type(deployment_type: Optional[str]) -> Optional[Litera
 
     deployment_type_lower = deployment_type.lower()
     if deployment_type_lower not in ("cloud", "datacenter", "server"):
-        raise ArgumentError(
-            f"Invalid deployment type '{deployment_type}'; must be one of: 'cloud', 'datacenter', 'server'"
-        )
+        raise ArgumentError(f"Invalid deployment type '{deployment_type}'; must be one of: 'cloud', 'datacenter', 'server'")
 
     return deployment_type_lower  # type: ignore
 

@@ -1565,10 +1565,7 @@ class ConfluenceSession:
         path = f"/content/{page_id}/property"
 
         # v1 API expects the property object directly
-        request_body = {
-            "key": property.key,
-            "value": property.value
-        }
+        request_body = {"key": property.key, "value": property.value}
 
         response_data = self._post(ConfluenceVersion.VERSION_1, path, request_body, dict[str, JsonType])
         return map_property_v1_to_domain(response_data)
@@ -1689,13 +1686,7 @@ class ConfluenceSession:
             raise PageError(f"Property with ID {property_id} not found on page {page_id}")
 
         # v1 API expects key, value, and version
-        request_body = {
-            "key": property.key,
-            "value": property.value,
-            "version": {
-                "number": version
-            }
-        }
+        request_body = {"key": property.key, "value": property.value, "version": {"number": version}}
 
         path = f"/content/{page_id}/property/{property_key}"
         response_data = self._put(ConfluenceVersion.VERSION_1, path, request_body, dict[str, JsonType])

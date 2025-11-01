@@ -77,13 +77,8 @@ def map_page_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePage:
         parentId=parent_id,
         status=status,
         title=title,
-        body=ConfluencePageBody(
-            storage=ConfluencePageStorage(
-                value=body_value,
-                representation=body_representation
-            )
-        ),
-        version=ConfluenceContentVersion(number=version_number)
+        body=ConfluencePageBody(storage=ConfluencePageStorage(value=body_value, representation=body_representation)),
+        version=ConfluenceContentVersion(number=version_number),
     )
 
 
@@ -125,12 +120,7 @@ def map_page_properties_v1_to_domain(v1_response: Dict[str, JsonType]) -> Conflu
 
     # Build ConfluencePageProperties object
     return ConfluencePageProperties(
-        id=page_id,
-        spaceId=space_id,
-        parentId=parent_id,
-        status=status,
-        title=title,
-        version=ConfluenceContentVersion(number=version_number)
+        id=page_id, spaceId=space_id, parentId=parent_id, status=status, title=title, version=ConfluenceContentVersion(number=version_number)
     )
 
 
@@ -154,12 +144,7 @@ def map_create_page_to_v1(request: ConfluenceCreatePageRequest, space_key: str) 
         "type": "page",
         "title": request.title,
         "space": {"key": space_key},
-        "body": {
-            "storage": {
-                "value": request.body.storage.value,
-                "representation": "storage"
-            }
-        }
+        "body": {"storage": {"value": request.body.storage.value, "representation": "storage"}},
     }
 
     # Add ancestors if parentId is provided
@@ -197,16 +182,9 @@ def map_update_page_to_v1(page_id: str, request: ConfluenceUpdatePageRequest, sp
         "type": "page",
         "title": request.title,
         "space": {"key": space_key},
-        "body": {
-            "storage": {
-                "value": request.body.storage.value,
-                "representation": "storage"
-            }
-        },
-        "version": {
-            "number": request.version.number
-        },
-        "status": request.status
+        "body": {"storage": {"value": request.body.storage.value, "representation": "storage"}},
+        "version": {"number": request.version.number},
+        "status": request.status,
     }
 
     # Add minorEdit if provided
@@ -267,15 +245,7 @@ def map_attachment_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceA
     # Build ConfluenceAttachment object
     from .api import ConfluenceAttachment
 
-    return ConfluenceAttachment(
-        id=attachment_id,
-        title=title,
-        mediaType=media_type,
-        fileSize=file_size,
-        webuiLink=webui,
-        downloadLink=download,
-        pageId=page_id
-    )
+    return ConfluenceAttachment(id=attachment_id, title=title, mediaType=media_type, fileSize=file_size, webuiLink=webui, downloadLink=download, pageId=page_id)
 
 
 def map_label_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceIdentifiedLabel:
@@ -300,11 +270,7 @@ def map_label_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceIdenti
     name = str(v1_response["name"])
     prefix = str(v1_response.get("prefix", "global"))
 
-    return ConfluenceIdentifiedLabel(
-        id=label_id,
-        name=name,
-        prefix=prefix
-    )
+    return ConfluenceIdentifiedLabel(id=label_id, name=name, prefix=prefix)
 
 
 def map_property_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceIdentifiedContentProperty:
@@ -336,9 +302,4 @@ def map_property_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceIde
     version_dict = typing.cast(Dict[str, JsonType], v1_response.get("version", {}))
     version_number = int(version_dict.get("number", 1))
 
-    return ConfluenceIdentifiedContentProperty(
-        id=property_id,
-        key=key,
-        value=value,
-        version=ConfluenceContentVersion(number=version_number)
-    )
+    return ConfluenceIdentifiedContentProperty(id=property_id, key=key, value=value, version=ConfluenceContentVersion(number=version_number))
