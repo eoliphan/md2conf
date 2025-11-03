@@ -35,11 +35,12 @@ def map_page_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePage:
     - Field names may differ (e.g., version structure)
 
     Args:
-        v1_response: JSON response from GET /rest/api/content/{id}?expand=body.storage,version,space
+        v1_response: JSON response from GET /rest/api/content/{id}?expand=body.storage,version,space,history
 
     Returns:
         ConfluencePage object with mapped fields
     """
+    import datetime
     import typing
 
     from .api import ConfluenceContentVersion, ConfluencePageBody, ConfluencePageStorage
@@ -70,7 +71,22 @@ def map_page_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePage:
     version_dict = typing.cast(Dict[str, JsonType], v1_response.get("version", {}))
     version_number = int(version_dict.get("number", 1))
 
+    # Extract history data if available
+    history_dict = typing.cast(Dict[str, JsonType], v1_response.get("history", {}))
+    created_by_dict = typing.cast(Dict[str, JsonType], history_dict.get("createdBy", {}))
+    author_id = str(created_by_dict.get("accountId", "unknown"))
+
+    # v1 API returns dates in ISO format string
+    created_at_str = str(v1_response.get("createdDate", v1_response.get("created", datetime.datetime.now().isoformat())))
+    try:
+        # Parse ISO format datetime - handle both Z and +00:00 format
+        created_at = datetime.datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+    except (ValueError, AttributeError):
+        created_at = datetime.datetime.now()
+
     # Build ConfluencePage object
+    # Note: v1 API doesn't provide parentType, position, ownerId, lastOwnerId
+    # These are set to None/placeholder values
     return ConfluencePage(
         id=page_id,
         spaceId=space_id,
@@ -79,6 +95,12 @@ def map_page_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePage:
         title=title,
         body=ConfluencePageBody(storage=ConfluencePageStorage(value=body_value, representation=body_representation)),
         version=ConfluenceContentVersion(number=version_number),
+        parentType=None,  # Not available in v1 API
+        position=None,  # Not available in v1 API
+        authorId=author_id,
+        ownerId=author_id,  # Use author as owner (best guess for v1)
+        lastOwnerId=None,  # Not available in v1 API
+        createdAt=created_at,
     )
 
 
@@ -89,11 +111,12 @@ def map_page_properties_v1_to_domain(v1_response: Dict[str, JsonType]) -> Conflu
     This extracts only the properties (metadata) from a v1 page response, excluding body content.
 
     Args:
-        v1_response: JSON response from GET /rest/api/content/{id}?expand=version,space
+        v1_response: JSON response from GET /rest/api/content/{id}?expand=version,space,history
 
     Returns:
         ConfluencePageProperties object with mapped fields
     """
+    import datetime
     import typing
 
     from .api import ConfluenceContentVersion
@@ -118,9 +141,35 @@ def map_page_properties_v1_to_domain(v1_response: Dict[str, JsonType]) -> Conflu
     version_dict = typing.cast(Dict[str, JsonType], v1_response.get("version", {}))
     version_number = int(version_dict.get("number", 1))
 
+    # Extract history data if available
+    history_dict = typing.cast(Dict[str, JsonType], v1_response.get("history", {}))
+    created_by_dict = typing.cast(Dict[str, JsonType], history_dict.get("createdBy", {}))
+    author_id = str(created_by_dict.get("accountId", "unknown"))
+
+    # v1 API returns dates in ISO format string
+    created_at_str = str(v1_response.get("createdDate", v1_response.get("created", datetime.datetime.now().isoformat())))
+    try:
+        # Parse ISO format datetime - handle both Z and +00:00 format
+        created_at = datetime.datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+    except (ValueError, AttributeError):
+        created_at = datetime.datetime.now()
+
     # Build ConfluencePageProperties object
+    # Note: v1 API doesn't provide parentType, position, ownerId, lastOwnerId
+    # These are set to None/placeholder values
     return ConfluencePageProperties(
-        id=page_id, spaceId=space_id, parentId=parent_id, status=status, title=title, version=ConfluenceContentVersion(number=version_number)
+        id=page_id,
+        spaceId=space_id,
+        parentId=parent_id,
+        status=status,
+        title=title,
+        version=ConfluenceContentVersion(number=version_number),
+        parentType=None,  # Not available in v1 API
+        position=None,  # Not available in v1 API
+        authorId=author_id,
+        ownerId=author_id,  # Use author as owner (best guess for v1)
+        lastOwnerId=None,  # Not available in v1 API
+        createdAt=created_at,
     )
 
 
@@ -151,9 +200,9 @@ def map_create_page_to_v1(request: ConfluenceCreatePageRequest, space_key: str) 
     if request.parentId:
         v1_request["ancestors"] = [{"id": request.parentId}]
 
-    # Add status if provided
+    # Add status if provided (convert enum to string value)
     if request.status:
-        v1_request["status"] = request.status
+        v1_request["status"] = request.status.value
 
     return v1_request
 
@@ -184,7 +233,7 @@ def map_update_page_to_v1(page_id: str, request: ConfluenceUpdatePageRequest, sp
         "space": {"key": space_key},
         "body": {"storage": {"value": request.body.storage.value, "representation": "storage"}},
         "version": {"number": request.version.number},
-        "status": request.status,
+        "status": request.status.value,  # Convert enum to string value
     }
 
     # Add minorEdit if provided

@@ -1105,7 +1105,7 @@ class ConfluenceSession:
         """
         Retrieves Confluence wiki page details using v1 API.
 
-        v1 API endpoint: GET /rest/api/content/{pageId}?expand=version,space
+        v1 API endpoint: GET /rest/api/content/{pageId}?expand=version,space,history
 
         :param page_id: The Confluence page ID.
         :returns: Confluence page info.
@@ -1113,7 +1113,7 @@ class ConfluenceSession:
         from .api_mappers import map_page_properties_v1_to_domain
 
         path = f"/content/{page_id}"
-        query = {"expand": "version,space"}
+        query = {"expand": "version,space,history"}
         response = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
         return map_page_properties_v1_to_domain(response)
 
@@ -1256,15 +1256,20 @@ class ConfluenceSession:
 
         path = "/content"
         url = self._build_url(ConfluenceVersion.VERSION_1, path)
+        request_body = json_dump_string(v1_request)
+        LOGGER.info(f"Creating page at URL: {url}")
+        LOGGER.info(f"Request body: {request_body}")
         response = self.session.post(
             url,
-            data=json_dump_string(v1_request).encode("utf-8"),
+            data=request_body.encode("utf-8"),
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
             verify=True,
         )
+        if response.status_code >= 400:
+            LOGGER.error(f"Create page failed with status {response.status_code}: {response.text[:500]}")
         response.raise_for_status()
         return map_page_v1_to_domain(response.json())
 

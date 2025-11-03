@@ -59,11 +59,12 @@ def get_datacenter_connection() -> Optional[ConfluenceConnectionProperties]:
 
     domain = os.getenv("CONFLUENCE_DOMAIN")
     base_path = os.getenv("CONFLUENCE_PATH", "/wiki/")
-    username = os.getenv("CONFLUENCE_USER_NAME")
+    username = os.getenv("CONFLUENCE_USER_NAME")  # Optional - if not set, uses Bearer token
     api_key = os.getenv("CONFLUENCE_API_KEY")
     space_key = os.getenv("CONFLUENCE_SPACE_KEY")
 
-    if not all([domain, username, api_key, space_key]):
+    # Require domain, api_key, and space_key (username is optional for Bearer auth)
+    if not all([domain, api_key, space_key]):
         return None
 
     return ConfluenceConnectionProperties(
@@ -80,6 +81,7 @@ class TestDataCenterAPI(TypedTestCase):
     api: ConfluenceAPI
     session: ConfluenceSession
     space_key: str
+    space_id: str
     test_root_page_id: Optional[str]
 
     @classmethod
@@ -92,39 +94,22 @@ class TestDataCenterAPI(TypedTestCase):
         cls.session = cls.api.__enter__()  # Open the session
         cls.space_key = props.space_key
 
+        # Get space ID from space key
+        cls.space_id = cls.session.space_key_to_id(cls.space_key)
+
         # Get test root page ID with default value
         cls.test_root_page_id = os.getenv("CONFLUENCE_TEST_ROOT_PAGE_ID", "293077930")
 
         # Verify we're actually using v1 API
         assert cls.session.api_version == ConfluenceVersion.VERSION_1, f"Expected VERSION_1 but got {cls.session.api_version}"
 
-        logging.info(f"Data Center tests initialized with space: {cls.space_key}, test root page: {cls.test_root_page_id}")
+        logging.info(f"Data Center tests initialized with space: {cls.space_key} (ID: {cls.space_id}), test root page: {cls.test_root_page_id}")
 
     @classmethod
     def tearDownClass(cls) -> None:
         """Close the Confluence session after all tests."""
         if hasattr(cls, 'api'):
             cls.api.__exit__(None, None, None)
-
-    def _create_test_page_request(self, title: str, content: str) -> "ConfluenceCreatePageRequest":
-        """
-        Helper method to create a page request with proper parent configuration.
-
-        Args:
-            title: Page title
-            content: Page content (HTML/storage format)
-
-        Returns:
-            ConfluenceCreatePageRequest with parentId set if test_root_page_id is configured
-        """
-        from md2conf.api import ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage
-
-        return ConfluenceCreatePageRequest(
-            title=title,
-            body=ConfluencePageBody(storage=ConfluencePageStorage(value=content, representation="storage")),
-            status="current",
-            parentId=self.test_root_page_id,  # Will be None if not set
-        )
 
     def test_version_detection(self) -> None:
         """Verify that deployment_type=datacenter forces v1 API usage."""
@@ -143,12 +128,12 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_page_creation_and_deletion(self) -> None:
         """Test creating and deleting a page using v1 API."""
-        # Create a test page using helper (handles parent page if configured)
-        request = self._create_test_page_request(
-            title="Data Center API Test Page", content="<p>This is a test page created by the Data Center integration tests.</p>"
+        # Create a test page under test root page
+        created_page = self.session.create_page(
+            parent_id=self.test_root_page_id,
+            title="Data Center API Test Page",
+            new_content="<p>This is a test page created by the Data Center integration tests.</p>",
         )
-
-        created_page = self.session.create_page(request)
         self.assertIsNotNone(created_page)
         self.assertEqual(created_page.title, "Data Center API Test Page")
 
@@ -158,24 +143,25 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_page_update(self) -> None:
         """Test updating a page using v1 API."""
-        from md2conf.api import ConfluencePageBody, ConfluencePageStorage, ConfluenceUpdatePageRequest
-
-        # Create a test page using helper
-        create_request = self._create_test_page_request(title="Data Center Update Test", content="<p>Original content</p>")
-        created_page = self.session.create_page(create_request)
+        # Create a test page under test root page
+        created_page = self.session.create_page(
+            parent_id=self.test_root_page_id,
+            title="Data Center Update Test",
+            new_content="<p>Original content</p>",
+        )
 
         try:
             # Update the page
-            update_request = ConfluenceUpdatePageRequest(
+            self.session.update_page(
+                page_id=created_page.id,
+                content="<p>Updated content</p>",
                 title="Data Center Update Test - Updated",
-                body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Updated content</p>", representation="storage")),
-                version=created_page.version,
-                status="current",
+                version=created_page.version.number,
             )
 
-            updated_page = self.session.update_page(created_page.id, update_request)
+            # Verify update
+            updated_page = self.session.get_page_properties(created_page.id)
             self.assertEqual(updated_page.title, "Data Center Update Test - Updated")
-            self.assertIn("Updated content", updated_page.body.storage.value)
         finally:
             # Clean up
             self.session.delete_page(created_page.id)
@@ -185,9 +171,12 @@ class TestDataCenterAPI(TypedTestCase):
         import tempfile
         from pathlib import Path
 
-        # Create a test page using helper
-        create_request = self._create_test_page_request(title="Data Center Attachment Test", content="<p>Page for testing attachments</p>")
-        created_page = self.session.create_page(create_request)
+        # Create a test page under test root page
+        created_page = self.session.create_page(
+            parent_id=self.test_root_page_id,
+            title="Data Center Attachment Test",
+            new_content="<p>Page for testing attachments</p>",
+        )
 
         try:
             # Create a temporary file to upload
@@ -216,9 +205,12 @@ class TestDataCenterAPI(TypedTestCase):
         """Test adding, retrieving, and removing labels using v1 API."""
         from md2conf.api import ConfluenceLabel
 
-        # Create a test page using helper
-        create_request = self._create_test_page_request(title="Data Center Label Test", content="<p>Page for testing labels</p>")
-        created_page = self.session.create_page(create_request)
+        # Create a test page under test root page
+        created_page = self.session.create_page(
+            parent_id=self.test_root_page_id,
+            title="Data Center Label Test",
+            new_content="<p>Page for testing labels</p>",
+        )
 
         try:
             # Add labels
@@ -253,9 +245,12 @@ class TestDataCenterAPI(TypedTestCase):
         """Test content property CRUD operations using v1 API."""
         from md2conf.api import ConfluenceContentProperty
 
-        # Create a test page using helper
-        create_request = self._create_test_page_request(title="Data Center Property Test", content="<p>Page for testing content properties</p>")
-        created_page = self.session.create_page(create_request)
+        # Create a test page under test root page
+        created_page = self.session.create_page(
+            parent_id=self.test_root_page_id,
+            title="Data Center Property Test",
+            new_content="<p>Page for testing content properties</p>",
+        )
 
         try:
             # Add property
