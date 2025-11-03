@@ -31,8 +31,8 @@ import os
 import unittest
 from typing import Optional
 
-from md2conf.api import ConfluenceAPI, ConfluenceSession
-from md2conf.environment import ConfluenceConnectionProperties, ConfluenceVersion
+from md2conf.api import ConfluenceAPI, ConfluenceSession, ConfluenceVersion
+from md2conf.environment import ConfluenceConnectionProperties
 from tests.utility import TypedTestCase
 
 logging.basicConfig(
@@ -77,6 +77,7 @@ def get_datacenter_connection() -> Optional[ConfluenceConnectionProperties]:
 class TestDataCenterAPI(TypedTestCase):
     """Test suite for Confluence Data Center REST API v1 operations."""
 
+    api: ConfluenceAPI
     session: ConfluenceSession
     space_key: str
     test_root_page_id: Optional[str]
@@ -87,7 +88,8 @@ class TestDataCenterAPI(TypedTestCase):
         props = get_datacenter_connection()
         assert props is not None, "Data Center connection properties not available"
 
-        cls.session = ConfluenceAPI(props).session
+        cls.api = ConfluenceAPI(props)
+        cls.session = cls.api.__enter__()  # Open the session
         cls.space_key = props.space_key
 
         # Get test root page ID with default value
@@ -97,6 +99,12 @@ class TestDataCenterAPI(TypedTestCase):
         assert cls.session.api_version == ConfluenceVersion.VERSION_1, f"Expected VERSION_1 but got {cls.session.api_version}"
 
         logging.info(f"Data Center tests initialized with space: {cls.space_key}, test root page: {cls.test_root_page_id}")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        """Close the Confluence session after all tests."""
+        if hasattr(cls, 'api'):
+            cls.api.__exit__(None, None, None)
 
     def _create_test_page_request(self, title: str, content: str) -> "ConfluenceCreatePageRequest":
         """
