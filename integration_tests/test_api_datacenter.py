@@ -84,6 +84,10 @@ class TestDataCenterAPI(TypedTestCase):
     space_id: str
     test_root_page_id: Optional[str]
 
+    # Prefix for all test pages to avoid collisions
+    # Using simple alphanumeric + hyphen to avoid URL slug issues
+    TEST_PREFIX = "MD2CONF-TEST"
+
     @classmethod
     def setUpClass(cls) -> None:
         """Initialize the Confluence session for all tests."""
@@ -120,7 +124,7 @@ class TestDataCenterAPI(TypedTestCase):
         headers = {'Authorization': f'Bearer {os.getenv("CONFLUENCE_API_KEY")}'}
         payload = {
             'type': 'page',
-            'title': 'Direct Test from Unittest',
+            'title': f'{self.TEST_PREFIX} Direct API Call',
             'space': {'key': 'GSSPACE'},
             'body': {'storage': {'value': '<p>Test</p>', 'representation': 'storage'}},
             'ancestors': [{'id': '293077930'}]
@@ -151,13 +155,14 @@ class TestDataCenterAPI(TypedTestCase):
     def test_page_creation_and_deletion(self) -> None:
         """Test creating and deleting a page using v1 API."""
         # Create a test page under test root page
+        title = f"{self.TEST_PREFIX} Page Creation"
         created_page = self.session.create_page(
             parent_id=self.test_root_page_id,
-            title="Data Center API Test",
+            title=title,
             new_content="<p>Test page for Data Center integration tests</p>",
         )
         self.assertIsNotNone(created_page)
-        self.assertEqual(created_page.title, "Data Center API Test")
+        self.assertEqual(created_page.title, title)
 
         # Clean up - delete the page
         page_id = created_page.id
@@ -166,24 +171,26 @@ class TestDataCenterAPI(TypedTestCase):
     def test_page_update(self) -> None:
         """Test updating a page using v1 API."""
         # Create a test page under test root page
+        title = f"{self.TEST_PREFIX} Page Update"
         created_page = self.session.create_page(
             parent_id=self.test_root_page_id,
-            title="Data Center Update Test",
+            title=title,
             new_content="<p>Original content</p>",
         )
 
         try:
             # Update the page
+            updated_title = f"{title} - Updated"
             self.session.update_page(
                 page_id=created_page.id,
                 content="<p>Updated content</p>",
-                title="Data Center Update Test - Updated",
+                title=updated_title,
                 version=created_page.version.number,
             )
 
             # Verify update
             updated_page = self.session.get_page_properties(created_page.id)
-            self.assertEqual(updated_page.title, "Data Center Update Test - Updated")
+            self.assertEqual(updated_page.title, updated_title)
         finally:
             # Clean up
             self.session.delete_page(created_page.id)
@@ -196,7 +203,7 @@ class TestDataCenterAPI(TypedTestCase):
         # Create a test page under test root page
         created_page = self.session.create_page(
             parent_id=self.test_root_page_id,
-            title="Data Center Attachment Test",
+            title=f"{self.TEST_PREFIX} Attachments",
             new_content="<p>Page for testing attachments</p>",
         )
 
@@ -230,7 +237,7 @@ class TestDataCenterAPI(TypedTestCase):
         # Create a test page under test root page
         created_page = self.session.create_page(
             parent_id=self.test_root_page_id,
-            title="Data Center Label Test",
+            title=f"{self.TEST_PREFIX} Labels",
             new_content="<p>Page for testing labels</p>",
         )
 
@@ -270,7 +277,7 @@ class TestDataCenterAPI(TypedTestCase):
         # Create a test page under test root page
         created_page = self.session.create_page(
             parent_id=self.test_root_page_id,
-            title="Data Center Property Test",
+            title=f"{self.TEST_PREFIX} Content Properties",
             new_content="<p>Page for testing content properties</p>",
         )
 
