@@ -111,6 +111,28 @@ class TestDataCenterAPI(TypedTestCase):
         if hasattr(cls, 'api'):
             cls.api.__exit__(None, None, None)
 
+    def test_direct_api_call(self) -> None:
+        """Test direct API call without using any md2conf code."""
+        import requests
+        import os
+
+        url = "https://confluence.grantsolutions.gov/rest/api/content"
+        headers = {'Authorization': f'Bearer {os.getenv("CONFLUENCE_API_KEY")}'}
+        payload = {
+            'type': 'page',
+            'title': 'Direct Test from Unittest',
+            'space': {'key': 'GSSPACE'},
+            'body': {'storage': {'value': '<p>Test</p>', 'representation': 'storage'}},
+            'ancestors': [{'id': '293077930'}]
+        }
+
+        response = requests.post(url, json=payload, headers=headers)
+        self.assertEqual(response.status_code, 200, f"Failed: {response.text}")
+
+        # Clean up
+        page_id = response.json()['id']
+        requests.delete(f"https://confluence.grantsolutions.gov/rest/api/content/{page_id}", headers=headers)
+
     def test_version_detection(self) -> None:
         """Verify that deployment_type=datacenter forces v1 API usage."""
         self.assertEqual(self.session.api_version, ConfluenceVersion.VERSION_1)

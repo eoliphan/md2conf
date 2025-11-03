@@ -1235,11 +1235,13 @@ class ConfluenceSession:
 
         LOGGER.info("Creating page: %s", title)
 
-        parent_page = self.get_page_properties(parent_id)
-        space_key = self.space_id_to_key(parent_page.spaceId)
+        # For v1 API, we use the space key from session properties
+        # We don't need to fetch parent page just to get space info
+        space_key = self.site.space_key
+        space_id = self.space_key_to_id(space_key)
 
         request = ConfluenceCreatePageRequest(
-            spaceId=parent_page.spaceId,
+            spaceId=space_id,
             status=ConfluenceStatus.CURRENT,
             title=title,
             parentId=parent_id,
@@ -1256,20 +1258,23 @@ class ConfluenceSession:
 
         path = "/content"
         url = self._build_url(ConfluenceVersion.VERSION_1, path)
-        request_body = json_dump_string(v1_request)
         LOGGER.info(f"Creating page at URL: {url}")
-        LOGGER.info(f"Request body: {request_body}")
-        response = self.session.post(
-            url,
-            data=request_body.encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            verify=True,
-        )
+        LOGGER.info(f"Request body: {v1_request}")
+
+        # TEMPORARY WORKAROUND: Use direct requests instead of session
+        # to avoid Apache/proxy issues with persistent connections
+        import os
+        import requests
+        api_key = os.getenv('CONFLUENCE_API_KEY')
+        headers = {'Authorization': f'Bearer {api_key}'}
+        LOGGER.info(f"POST {url}")
+        LOGGER.info(f"Headers: {headers}")
+        LOGGER.info(f"Payload: {v1_request}")
+        response = requests.post(url, json=v1_request, headers=headers, verify=True)
         if response.status_code >= 400:
-            LOGGER.error(f"Create page failed with status {response.status_code}: {response.text[:500]}")
+            LOGGER.error(f"Create page failed with status {response.status_code}")
+            LOGGER.error(f"Response headers: {response.headers}")
+            LOGGER.error(f"Response body: {response.text}")
         response.raise_for_status()
         return map_page_v1_to_domain(response.json())
 

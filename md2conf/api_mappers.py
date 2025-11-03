@@ -200,9 +200,9 @@ def map_create_page_to_v1(request: ConfluenceCreatePageRequest, space_key: str) 
     if request.parentId:
         v1_request["ancestors"] = [{"id": request.parentId}]
 
-    # Add status if provided (convert enum to string value)
-    if request.status:
-        v1_request["status"] = request.status.value
+    # Note: status field is NOT included for create operations
+    # The v1 API sets it to "current" by default, and including it
+    # may cause Apache/proxy issues with some Data Center configurations
 
     return v1_request
 
