@@ -1261,17 +1261,13 @@ class ConfluenceSession:
         LOGGER.info(f"Creating page at URL: {url}")
         LOGGER.info(f"Request body: {v1_request}")
 
-        # TEMPORARY WORKAROUND: Use direct requests instead of session
-        # to avoid Apache/proxy issues with persistent connections
+        # Use direct requests instead of session to avoid persistent connection issues
+        # Note: Some title/content combinations may trigger WAF rules (e.g. "API Test Page")
         import os
         import requests
 
-        LOGGER.critical("★★★ USING UPDATED CODE VERSION 2025-11-03-1315 ★★★")
         api_key = os.getenv('CONFLUENCE_API_KEY')
         headers = {'Authorization': f'Bearer {api_key}'}
-        LOGGER.info(f"POST {url}")
-        LOGGER.info(f"Headers: {headers}")
-        LOGGER.info(f"Payload: {v1_request}")
         response = requests.post(url, json=v1_request, headers=headers, verify=True)
         if response.status_code >= 400:
             LOGGER.error(f"Create page failed with status {response.status_code}")
