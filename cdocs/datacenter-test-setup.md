@@ -20,14 +20,17 @@ A dedicated root page has been created for organizing test pages:
 
 ## Running the Tests
 
-### Step 1: Set Additional Environment Variables
+### Step 1: Environment Variables (Optional)
 
+The tests use these defaults:
+- `CONFLUENCE_DEPLOYMENT_TYPE='datacenter'` ✅ (already defaulted)
+- `CONFLUENCE_TEST_ROOT_PAGE_ID='293077930'` ✅ (already defaulted)
+
+**You only need to set these if you want to override the defaults.**
+
+For example, to use a different test root page:
 ```bash
-# Tell md2conf to use Data Center (v1 API)
-export CONFLUENCE_DEPLOYMENT_TYPE='datacenter'
-
-# Specify the test root page ID
-export CONFLUENCE_TEST_ROOT_PAGE_ID='293077930'
+export CONFLUENCE_TEST_ROOT_PAGE_ID='999999999'
 ```
 
 ### Step 2: Run the Integration Tests
@@ -112,12 +115,18 @@ All tests include proper cleanup:
 
 ## Troubleshooting
 
-### Issue: Tests fail with "Data Center integration tests require..."
+### Issue: Tests are skipped with "Data Center integration tests require..."
 
-**Solution**: Make sure `CONFLUENCE_DEPLOYMENT_TYPE=datacenter` is set:
+**Solution**: The standard Confluence environment variables are missing. Ensure these are set:
 ```bash
-export CONFLUENCE_DEPLOYMENT_TYPE='datacenter'
+export CONFLUENCE_DOMAIN='your-datacenter.example.com'
+export CONFLUENCE_PATH='/wiki/'
+export CONFLUENCE_USER_NAME='your-username'
+export CONFLUENCE_API_KEY='your-api-key'
+export CONFLUENCE_SPACE_KEY='YOURSPACE'
 ```
+
+Note: `CONFLUENCE_DEPLOYMENT_TYPE` defaults to 'datacenter', so you don't need to set it.
 
 ### Issue: Tests fail with connection errors
 
@@ -131,7 +140,11 @@ echo $CONFLUENCE_USER_NAME
 
 ### Issue: Tests create pages at space root instead of under test page
 
-**Solution**: Make sure test root page ID is set:
+**Unlikely**: The test root page ID defaults to '293077930'. This should only happen if:
+1. You explicitly set `CONFLUENCE_TEST_ROOT_PAGE_ID=''` (empty string)
+2. You're using a very old version of the test file
+
+**Solution**: Ensure you're using the latest test file, or explicitly set:
 ```bash
 export CONFLUENCE_TEST_ROOT_PAGE_ID='293077930'
 ```
@@ -155,13 +168,13 @@ export CONFLUENCE_TEST_ROOT_PAGE_ID='293077930'
 
 ## Quick Test Command
 
-For convenience, you can run all setup and tests in one command:
+Since the defaults are already configured, you can simply run:
 
 ```bash
-export CONFLUENCE_DEPLOYMENT_TYPE='datacenter' && \
-export CONFLUENCE_TEST_ROOT_PAGE_ID='293077930' && \
 python -m unittest integration_tests.test_api_datacenter -v
 ```
+
+**That's it!** No environment variable setup needed (unless you want to override defaults).
 
 ## Verifying Test Root Page Structure
 

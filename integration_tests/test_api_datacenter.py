@@ -6,18 +6,21 @@ Copyright 2022-2025, Levente Hunyadi
 :see: https://github.com/hunyadi/md2conf
 
 NOTE: These tests require access to a Confluence Data Center instance.
-Set the following environment variables:
 
-    CONFLUENCE_DEPLOYMENT_TYPE=datacenter
+Required environment variables:
     CONFLUENCE_DOMAIN=your-datacenter.example.com
     CONFLUENCE_PATH=/wiki/
     CONFLUENCE_USER_NAME=your-username
     CONFLUENCE_API_KEY=your-api-key
     CONFLUENCE_SPACE_KEY=TESTSPACE
-    CONFLUENCE_TEST_ROOT_PAGE_ID=123456789  # Optional: Parent page ID for test pages
 
-If CONFLUENCE_TEST_ROOT_PAGE_ID is set, all test pages will be created as children
-of that page. Otherwise, pages will be created at the space root level.
+Optional environment variables (with defaults):
+    CONFLUENCE_DEPLOYMENT_TYPE=datacenter  # Default: 'datacenter'
+    CONFLUENCE_TEST_ROOT_PAGE_ID=293077930  # Default: '293077930'
+
+All test pages will be created as children of the test root page (default: 293077930).
+Override CONFLUENCE_TEST_ROOT_PAGE_ID to use a different parent page, or set to empty
+string to create pages at space root level.
 
 The tests verify that all CRUD operations work correctly with the v1 REST API
 used by Confluence Data Center and Server editions.
@@ -42,10 +45,15 @@ def get_datacenter_connection() -> Optional[ConfluenceConnectionProperties]:
     """
     Get Data Center connection properties from environment variables.
 
+    Defaults:
+        - CONFLUENCE_DEPLOYMENT_TYPE: 'datacenter' (can be overridden)
+        - CONFLUENCE_TEST_ROOT_PAGE_ID: '293077930' (can be overridden)
+
     Returns:
         ConfluenceConnectionProperties if all required variables are set, None otherwise
     """
-    deployment_type = os.getenv("CONFLUENCE_DEPLOYMENT_TYPE", "")
+    # Default to datacenter if not explicitly set
+    deployment_type = os.getenv("CONFLUENCE_DEPLOYMENT_TYPE", "datacenter")
     if deployment_type.lower() != "datacenter":
         return None
 
@@ -64,7 +72,7 @@ def get_datacenter_connection() -> Optional[ConfluenceConnectionProperties]:
 
 
 @unittest.skipUnless(
-    get_datacenter_connection() is not None, "Data Center integration tests require CONFLUENCE_DEPLOYMENT_TYPE=datacenter and connection environment variables"
+    get_datacenter_connection() is not None, "Data Center integration tests require connection environment variables (CONFLUENCE_DOMAIN, etc.)"
 )
 class TestDataCenterAPI(TypedTestCase):
     """Test suite for Confluence Data Center REST API v1 operations."""
@@ -82,16 +90,13 @@ class TestDataCenterAPI(TypedTestCase):
         cls.session = ConfluenceAPI(props).session
         cls.space_key = props.space_key
 
-        # Get optional test root page ID
-        cls.test_root_page_id = os.getenv("CONFLUENCE_TEST_ROOT_PAGE_ID")
+        # Get test root page ID with default value
+        cls.test_root_page_id = os.getenv("CONFLUENCE_TEST_ROOT_PAGE_ID", "293077930")
 
         # Verify we're actually using v1 API
         assert cls.session.api_version == ConfluenceVersion.VERSION_1, f"Expected VERSION_1 but got {cls.session.api_version}"
 
-        if cls.test_root_page_id:
-            logging.info(f"Data Center tests initialized with space: {cls.space_key}, test root page: {cls.test_root_page_id}")
-        else:
-            logging.info(f"Data Center tests initialized with space: {cls.space_key} (no test root page)")
+        logging.info(f"Data Center tests initialized with space: {cls.space_key}, test root page: {cls.test_root_page_id}")
 
     def _create_test_page_request(self, title: str, content: str) -> "ConfluenceCreatePageRequest":
         """
