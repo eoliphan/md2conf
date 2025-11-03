@@ -164,6 +164,8 @@ synchronized: true
 ## Configuration
 
 ### Environment Variables
+
+**Cloud (v2 API):**
 ```bash
 CONFLUENCE_DOMAIN='example.atlassian.net'
 CONFLUENCE_PATH='/wiki/'
@@ -171,6 +173,16 @@ CONFLUENCE_USER_NAME='user@example.com'
 CONFLUENCE_API_KEY='0123456789abcdef'
 CONFLUENCE_SPACE_KEY='SPACE'
 CONFLUENCE_API_URL='https://api.atlassian.com/ex/confluence/CLOUD_ID/'  # For scoped tokens
+```
+
+**Data Center/Server (v1 API):**
+```bash
+CONFLUENCE_DOMAIN='confluence.company.com'
+CONFLUENCE_DEPLOYMENT_TYPE='datacenter'  # or 'server'
+CONFLUENCE_API_KEY='your-personal-access-token'
+CONFLUENCE_SPACE_KEY='SPACE'
+# NOTE: Do NOT set CONFLUENCE_USER_NAME for Data Center - use Bearer token auth only
+# NOTE: Do NOT use CONFLUENCE_PATH - API is at root domain, not /wiki/
 ```
 
 ### Permissions for Scoped API Tokens
