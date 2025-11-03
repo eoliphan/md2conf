@@ -91,7 +91,8 @@ class SynchronizingProcessor(Processor):
 
             update = True
 
-        space_key = self.api.space_id_to_key(page.spaceId)
+        # For v1 API, use space key from session properties (reverse lookup not supported)
+        space_key = self.api.site.space_key
         if update:
             self._update_markdown(
                 node.absolute_path,

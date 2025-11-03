@@ -3,7 +3,9 @@ title: "Images and documents"
 alignment: left
 ---
 
-<!-- confluence-page-id: 26837000 -->
+
+
+
 
 ![PNG image with caption](figure/interoperability.png)
 

@@ -82,7 +82,7 @@ class TestDataCenterAPI(TypedTestCase):
     session: ConfluenceSession
     space_key: str
     space_id: str
-    test_root_page_id: Optional[str]
+    test_root_page_id: str
 
     # Prefix for all test pages to avoid collisions
     # Using simple alphanumeric + hyphen to avoid URL slug issues
@@ -96,6 +96,9 @@ class TestDataCenterAPI(TypedTestCase):
 
         cls.api = ConfluenceAPI(props)
         cls.session = cls.api.__enter__()  # Open the session
+
+        # Assert space_key is not None (validated in get_datacenter_connection)
+        assert props.space_key is not None, "Space key must be set for Data Center tests"
         cls.space_key = props.space_key
 
         # Get space ID from space key
@@ -112,29 +115,30 @@ class TestDataCenterAPI(TypedTestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         """Close the Confluence session after all tests."""
-        if hasattr(cls, 'api'):
+        if hasattr(cls, "api"):
             cls.api.__exit__(None, None, None)
 
     def test_direct_api_call(self) -> None:
         """Test direct API call without using any md2conf code."""
-        import requests
         import os
 
+        import requests
+
         url = "https://confluence.grantsolutions.gov/rest/api/content"
-        headers = {'Authorization': f'Bearer {os.getenv("CONFLUENCE_API_KEY")}'}
+        headers = {"Authorization": f"Bearer {os.getenv('CONFLUENCE_API_KEY')}"}
         payload = {
-            'type': 'page',
-            'title': f'{self.TEST_PREFIX} Direct API Call',
-            'space': {'key': 'GSSPACE'},
-            'body': {'storage': {'value': '<p>Test</p>', 'representation': 'storage'}},
-            'ancestors': [{'id': '293077930'}]
+            "type": "page",
+            "title": f"{self.TEST_PREFIX} Direct API Call",
+            "space": {"key": "GSSPACE"},
+            "body": {"storage": {"value": "<p>Test</p>", "representation": "storage"}},
+            "ancestors": [{"id": "293077930"}],
         }
 
         response = requests.post(url, json=payload, headers=headers)
         self.assertEqual(response.status_code, 200, f"Failed: {response.text}")
 
         # Clean up
-        page_id = response.json()['id']
+        page_id = response.json()["id"]
         requests.delete(f"https://confluence.grantsolutions.gov/rest/api/content/{page_id}", headers=headers)
 
     def test_version_detection(self) -> None:
@@ -179,13 +183,13 @@ class TestDataCenterAPI(TypedTestCase):
         )
 
         try:
-            # Update the page
+            # Update the page (version must be incremented)
             updated_title = f"{title} - Updated"
             self.session.update_page(
                 page_id=created_page.id,
                 content="<p>Updated content</p>",
                 title=updated_title,
-                version=created_page.version.number,
+                version=created_page.version.number + 1,
             )
 
             # Verify update
@@ -215,14 +219,12 @@ class TestDataCenterAPI(TypedTestCase):
 
             try:
                 # Upload attachment
-                attachment = self.session.upload_attachment(created_page.id, temp_path)
+                self.session.upload_attachment(created_page.id, temp_path.name, attachment_path=temp_path)
+
+                # Retrieve attachment by name to verify upload
+                attachment = self.session.get_attachment_by_name(created_page.id, temp_path.name)
                 self.assertIsNotNone(attachment)
                 self.assertEqual(attachment.title, temp_path.name)
-
-                # Retrieve attachment by name
-                retrieved = self.session.get_attachment_by_name(created_page.id, temp_path.name)
-                self.assertIsNotNone(retrieved)
-                self.assertEqual(retrieved.id, attachment.id)
             finally:
                 # Clean up temp file
                 temp_path.unlink()
@@ -246,20 +248,16 @@ class TestDataCenterAPI(TypedTestCase):
             label1 = ConfluenceLabel(name="datacenter-test", prefix="global")
             label2 = ConfluenceLabel(name="integration-test", prefix="global")
 
-            added_label1 = self.session.add_label_to_page(created_page.id, label1)
-            added_label2 = self.session.add_label_to_page(created_page.id, label2)
+            self.session.add_labels(created_page.id, [label1, label2])
 
-            self.assertEqual(added_label1.name, "datacenter-test")
-            self.assertEqual(added_label2.name, "integration-test")
-
-            # Retrieve labels
+            # Retrieve labels to verify addition
             labels = self.session.get_labels(created_page.id)
             label_names = [label.name for label in labels]
             self.assertIn("datacenter-test", label_names)
             self.assertIn("integration-test", label_names)
 
             # Remove a label
-            self.session.remove_label_from_page(created_page.id, added_label1.id)
+            self.session.remove_labels(created_page.id, [label1])
 
             # Verify removal
             updated_labels = self.session.get_labels(created_page.id)
@@ -293,8 +291,9 @@ class TestDataCenterAPI(TypedTestCase):
             prop_keys = [p.key for p in properties]
             self.assertIn("test-property", prop_keys)
 
-            # Update property
-            updated_prop = self.session.update_content_property_for_page(created_page.id, added_prop.id, {"data": "updated value", "number": 100})
+            # Update property (version must be incremented)
+            updated_property_data = ConfluenceContentProperty(key="test-property", value={"data": "updated value", "number": 100})
+            updated_prop = self.session.update_content_property_for_page(created_page.id, added_prop.id, added_prop.version.number + 1, updated_property_data)
             self.assertEqual(updated_prop.value["data"], "updated value")  # type: ignore
             self.assertEqual(updated_prop.value["number"], 100)  # type: ignore
 

@@ -80,7 +80,7 @@ def map_page_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluencePage:
     created_at_str = str(v1_response.get("createdDate", v1_response.get("created", datetime.datetime.now().isoformat())))
     try:
         # Parse ISO format datetime - handle both Z and +00:00 format
-        created_at = datetime.datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+        created_at = datetime.datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         created_at = datetime.datetime.now()
 
@@ -150,7 +150,7 @@ def map_page_properties_v1_to_domain(v1_response: Dict[str, JsonType]) -> Conflu
     created_at_str = str(v1_response.get("createdDate", v1_response.get("created", datetime.datetime.now().isoformat())))
     try:
         # Parse ISO format datetime - handle both Z and +00:00 format
-        created_at = datetime.datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+        created_at = datetime.datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         created_at = datetime.datetime.now()
 
@@ -271,16 +271,26 @@ def map_attachment_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceA
     Returns:
         ConfluenceAttachment object with mapped fields
     """
+    import datetime
     import typing
+
+    from .api import ConfluenceAttachment, ConfluenceContentVersion, ConfluenceStatus
 
     # Extract basic fields
     attachment_id = str(v1_response["id"])
     title = str(v1_response["title"])
-    media_type = str(v1_response.get("metadata", {}).get("mediaType", "application/octet-stream"))
+    status_str = str(v1_response.get("status", "current"))
+    status = ConfluenceStatus.CURRENT if status_str == "current" else ConfluenceStatus.DRAFT
 
-    # Extract file size from extensions
+    metadata = typing.cast(Dict[str, JsonType], v1_response.get("metadata", {}))
+    media_type = str(metadata.get("mediaType", "application/octet-stream"))
+    media_type_desc = metadata.get("comment") if metadata.get("comment") else None
+    comment_str = str(media_type_desc) if media_type_desc else None
+
+    # Extract file size and fileId from extensions
     extensions = typing.cast(Dict[str, JsonType], v1_response.get("extensions", {}))
     file_size = int(extensions.get("fileSize", 0))
+    file_id = str(extensions.get("fileId", attachment_id))  # Use attachment_id as fallback
 
     # Extract pageId from container
     container = typing.cast(Dict[str, JsonType], v1_response.get("container", {}))
@@ -291,10 +301,35 @@ def map_attachment_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceA
     webui = str(links.get("webui", ""))
     download = str(links.get("download", ""))
 
-    # Build ConfluenceAttachment object
-    from .api import ConfluenceAttachment
+    # Extract version
+    version_dict = typing.cast(Dict[str, JsonType], v1_response.get("version", {}))
+    version_number = int(version_dict.get("number", 1))
+    version = ConfluenceContentVersion(number=version_number, minorEdit=False)
 
-    return ConfluenceAttachment(id=attachment_id, title=title, mediaType=media_type, fileSize=file_size, webuiLink=webui, downloadLink=download, pageId=page_id)
+    # Extract created date from history or version
+    history = typing.cast(Dict[str, JsonType], v1_response.get("history", {}))
+    created_date_str = str(history.get("createdDate", version_dict.get("when", "")))
+    if created_date_str:
+        created_at = datetime.datetime.fromisoformat(created_date_str.replace("Z", "+00:00"))
+    else:
+        created_at = datetime.datetime.now(datetime.timezone.utc)
+
+    # Build ConfluenceAttachment object
+    return ConfluenceAttachment(
+        id=attachment_id,
+        status=status,
+        title=title,
+        createdAt=created_at,
+        pageId=page_id,
+        mediaType=media_type,
+        mediaTypeDescription=None,  # v1 API doesn't provide this separately
+        comment=comment_str,
+        fileId=file_id,
+        fileSize=file_size,
+        webuiLink=webui,
+        downloadLink=download,
+        version=version,
+    )
 
 
 def map_label_v1_to_domain(v1_response: Dict[str, JsonType]) -> ConfluenceIdentifiedLabel:

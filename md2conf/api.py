@@ -1162,9 +1162,8 @@ class ConfluenceSession:
 
         LOGGER.info("Updating page: %s", page_id)
 
-        # Get current page to get spaceId
-        page_properties = self.get_page_properties(page_id)
-        space_key = self.space_id_to_key(page_properties.spaceId)
+        # For v1 API, we use the space key from session properties
+        space_key = self.site.space_key
 
         request = ConfluenceUpdatePageRequest(
             id=page_id,
@@ -1179,15 +1178,19 @@ class ConfluenceSession:
 
         path = f"/content/{page_id}"
         url = self._build_url(ConfluenceVersion.VERSION_1, path)
+        LOGGER.info(f"Updating page at URL: {url}")
+        LOGGER.info(f"Request body: {v1_request}")
+
         response = self.session.put(
             url,
-            data=json_dump_string(v1_request).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
+            json=v1_request,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
             verify=True,
         )
+        if response.status_code >= 400:
+            LOGGER.error(f"Update page failed with status {response.status_code}")
+            LOGGER.error(f"Response headers: {response.headers}")
+            LOGGER.error(f"Response body: {response.text}")
         response.raise_for_status()
 
     def update_page(
@@ -1261,14 +1264,13 @@ class ConfluenceSession:
         LOGGER.info(f"Creating page at URL: {url}")
         LOGGER.info(f"Request body: {v1_request}")
 
-        # Use direct requests instead of session to avoid persistent connection issues
         # Note: Some title/content combinations may trigger WAF rules (e.g. "API Test Page")
-        import os
-        import requests
-
-        api_key = os.getenv('CONFLUENCE_API_KEY')
-        headers = {'Authorization': f'Bearer {api_key}'}
-        response = requests.post(url, json=v1_request, headers=headers, verify=True)
+        response = self.session.post(
+            url,
+            json=v1_request,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            verify=True,
+        )
         if response.status_code >= 400:
             LOGGER.error(f"Create page failed with status {response.status_code}")
             LOGGER.error(f"Response headers: {response.headers}")
@@ -1391,13 +1393,9 @@ class ConfluenceSession:
         LOGGER.info("Checking if page exists with title: %s", title)
 
         # v1 API requires spaceKey, not spaceId
-        if space_id is not None and space_key is None:
-            space_key = self.space_id_to_key(space_id)
-        elif space_key is None:
-            # Get default space key
-            default_space_id = self.get_space_id(space_id=space_id, space_key=space_key)
-            if default_space_id:
-                space_key = self.space_id_to_key(default_space_id)
+        # Use space key from session properties (reverse lookup not supported in v1)
+        if space_key is None:
+            space_key = self.site.space_key
 
         path = "/content"
         query = {
