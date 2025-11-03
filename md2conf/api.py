@@ -1265,6 +1265,8 @@ class ConfluenceSession:
         # to avoid Apache/proxy issues with persistent connections
         import os
         import requests
+
+        LOGGER.critical("★★★ USING UPDATED CODE VERSION 2025-11-03-1315 ★★★")
         api_key = os.getenv('CONFLUENCE_API_KEY')
         headers = {'Authorization': f'Bearer {api_key}'}
         LOGGER.info(f"POST {url}")

@@ -153,11 +153,11 @@ class TestDataCenterAPI(TypedTestCase):
         # Create a test page under test root page
         created_page = self.session.create_page(
             parent_id=self.test_root_page_id,
-            title="Data Center API Test Page",
-            new_content="<p>This is a test page created by the Data Center integration tests.</p>",
+            title="Data Center API Test",
+            new_content="<p>Test page for Data Center integration tests</p>",
         )
         self.assertIsNotNone(created_page)
-        self.assertEqual(created_page.title, "Data Center API Test Page")
+        self.assertEqual(created_page.title, "Data Center API Test")
 
         # Clean up - delete the page
         page_id = created_page.id
