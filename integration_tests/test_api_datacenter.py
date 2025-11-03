@@ -14,6 +14,10 @@ Set the following environment variables:
     CONFLUENCE_USER_NAME=your-username
     CONFLUENCE_API_KEY=your-api-key
     CONFLUENCE_SPACE_KEY=TESTSPACE
+    CONFLUENCE_TEST_ROOT_PAGE_ID=123456789  # Optional: Parent page ID for test pages
+
+If CONFLUENCE_TEST_ROOT_PAGE_ID is set, all test pages will be created as children
+of that page. Otherwise, pages will be created at the space root level.
 
 The tests verify that all CRUD operations work correctly with the v1 REST API
 used by Confluence Data Center and Server editions.
@@ -67,6 +71,7 @@ class TestDataCenterAPI(TypedTestCase):
 
     session: ConfluenceSession
     space_key: str
+    test_root_page_id: Optional[str]
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -77,10 +82,36 @@ class TestDataCenterAPI(TypedTestCase):
         cls.session = ConfluenceAPI(props).session
         cls.space_key = props.space_key
 
+        # Get optional test root page ID
+        cls.test_root_page_id = os.getenv("CONFLUENCE_TEST_ROOT_PAGE_ID")
+
         # Verify we're actually using v1 API
         assert cls.session.api_version == ConfluenceVersion.VERSION_1, f"Expected VERSION_1 but got {cls.session.api_version}"
 
-        logging.info(f"Data Center tests initialized with space: {cls.space_key}")
+        if cls.test_root_page_id:
+            logging.info(f"Data Center tests initialized with space: {cls.space_key}, test root page: {cls.test_root_page_id}")
+        else:
+            logging.info(f"Data Center tests initialized with space: {cls.space_key} (no test root page)")
+
+    def _create_test_page_request(self, title: str, content: str) -> "ConfluenceCreatePageRequest":
+        """
+        Helper method to create a page request with proper parent configuration.
+
+        Args:
+            title: Page title
+            content: Page content (HTML/storage format)
+
+        Returns:
+            ConfluenceCreatePageRequest with parentId set if test_root_page_id is configured
+        """
+        from md2conf.api import ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage
+
+        return ConfluenceCreatePageRequest(
+            title=title,
+            body=ConfluencePageBody(storage=ConfluencePageStorage(value=content, representation="storage")),
+            status="current",
+            parentId=self.test_root_page_id,  # Will be None if not set
+        )
 
     def test_version_detection(self) -> None:
         """Verify that deployment_type=datacenter forces v1 API usage."""
@@ -99,15 +130,9 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_page_creation_and_deletion(self) -> None:
         """Test creating and deleting a page using v1 API."""
-        from md2conf.api import ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage
-
-        # Create a test page
-        request = ConfluenceCreatePageRequest(
-            title="Data Center API Test Page",
-            body=ConfluencePageBody(
-                storage=ConfluencePageStorage(value="<p>This is a test page created by the Data Center integration tests.</p>", representation="storage")
-            ),
-            status="current",
+        # Create a test page using helper (handles parent page if configured)
+        request = self._create_test_page_request(
+            title="Data Center API Test Page", content="<p>This is a test page created by the Data Center integration tests.</p>"
         )
 
         created_page = self.session.create_page(request)
@@ -120,14 +145,10 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_page_update(self) -> None:
         """Test updating a page using v1 API."""
-        from md2conf.api import ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage, ConfluenceUpdatePageRequest
+        from md2conf.api import ConfluencePageBody, ConfluencePageStorage, ConfluenceUpdatePageRequest
 
-        # Create a test page
-        create_request = ConfluenceCreatePageRequest(
-            title="Data Center Update Test",
-            body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Original content</p>", representation="storage")),
-            status="current",
-        )
+        # Create a test page using helper
+        create_request = self._create_test_page_request(title="Data Center Update Test", content="<p>Original content</p>")
         created_page = self.session.create_page(create_request)
 
         try:
@@ -151,14 +172,8 @@ class TestDataCenterAPI(TypedTestCase):
         import tempfile
         from pathlib import Path
 
-        from md2conf.api import ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage
-
-        # Create a test page
-        create_request = ConfluenceCreatePageRequest(
-            title="Data Center Attachment Test",
-            body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Page for testing attachments</p>", representation="storage")),
-            status="current",
-        )
+        # Create a test page using helper
+        create_request = self._create_test_page_request(title="Data Center Attachment Test", content="<p>Page for testing attachments</p>")
         created_page = self.session.create_page(create_request)
 
         try:
@@ -186,14 +201,10 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_label_operations(self) -> None:
         """Test adding, retrieving, and removing labels using v1 API."""
-        from md2conf.api import ConfluenceCreatePageRequest, ConfluenceLabel, ConfluencePageBody, ConfluencePageStorage
+        from md2conf.api import ConfluenceLabel
 
-        # Create a test page
-        create_request = ConfluenceCreatePageRequest(
-            title="Data Center Label Test",
-            body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Page for testing labels</p>", representation="storage")),
-            status="current",
-        )
+        # Create a test page using helper
+        create_request = self._create_test_page_request(title="Data Center Label Test", content="<p>Page for testing labels</p>")
         created_page = self.session.create_page(create_request)
 
         try:
@@ -227,14 +238,10 @@ class TestDataCenterAPI(TypedTestCase):
 
     def test_content_property_operations(self) -> None:
         """Test content property CRUD operations using v1 API."""
-        from md2conf.api import ConfluenceContentProperty, ConfluenceCreatePageRequest, ConfluencePageBody, ConfluencePageStorage
+        from md2conf.api import ConfluenceContentProperty
 
-        # Create a test page
-        create_request = ConfluenceCreatePageRequest(
-            title="Data Center Property Test",
-            body=ConfluencePageBody(storage=ConfluencePageStorage(value="<p>Page for testing content properties</p>", representation="storage")),
-            status="current",
-        )
+        # Create a test page using helper
+        create_request = self._create_test_page_request(title="Data Center Property Test", content="<p>Page for testing content properties</p>")
         created_page = self.session.create_page(create_request)
 
         try:
