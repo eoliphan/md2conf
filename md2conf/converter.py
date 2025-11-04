@@ -94,6 +94,35 @@ def encode_title(text: str) -> str:
     return quote_plus(text.strip())
 
 
+def preprocess_csf_comments_in_html(html: str) -> str:
+    """
+    Replace CSF comments in HTML with actual CSF XML elements.
+
+    CSF comments have the format: <!-- csf: <xml content> -->
+    This allows embedding Confluence Storage Format macros inline in paragraphs,
+    table cells, list items, etc. where fenced code blocks cannot be used.
+
+    Must be called BEFORE parsing HTML to XML (because the XML parser removes comments).
+
+    :param html: HTML string potentially containing CSF comments
+    :returns: HTML string with CSF comments replaced by actual XML elements
+    """
+    # Pattern to match CSF comments: <!-- csf: <xml content> -->
+    # Uses non-greedy match to handle multiple comments on same line
+    pattern = r'<!--\s*csf:\s*(.+?)\s*-->'
+
+    def replace_comment(match: re.Match[str]) -> str:
+        xml_content = match.group(1).strip()
+        # Note: We don't validate the XML here because it may use namespaces (ac:, ri:)
+        # that aren't defined in isolation. The XML will be validated when the full
+        # document is parsed by elements_from_strings().
+        # Return the XML content directly (without the comment wrapper)
+        return xml_content
+
+    # Replace all CSF comments with their XML content
+    return re.sub(pattern, replace_comment, html, flags=re.DOTALL)
+
+
 # supported code block languages, for which syntax highlighting is available
 _LANGUAGES = {
     "abap": "abap",
@@ -1805,6 +1834,12 @@ class ConfluenceDocument:
             generated_by = document.generated_by or self.options.generated_by
         else:
             generated_by = None
+
+        # preprocess CSF comments in HTML (must be done before parsing because XML parser removes comments)
+        try:
+            html = preprocess_csf_comments_in_html(html)
+        except DocumentError as ex:
+            raise ConversionError(path) from ex
 
         if generated_by is not None:
             generated_by_html = markdown_to_html(generated_by)

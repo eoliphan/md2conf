@@ -1,0 +1,44 @@
+<ac:structured-macro ac:name="info" ac:schema-version="1">
+  <ac:rich-text-body>
+    <p>This page has been generated with a tool.</p>
+  </ac:rich-text-body>
+</ac:structured-macro>
+<h1>Inline CSF Test Cases</h1>
+<p>This document tests inline CSF (Confluence Storage Format) embedding using HTML comment syntax.</p>
+<h2>Test 1: Inline CSF in paragraph</h2>
+<p>This is a paragraph with an inline <ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Green</ac:parameter><ac:parameter ac:name="title">DONE</ac:parameter></ac:structured-macro> status macro.</p>
+<h2>Test 2: CSF in table cell</h2>
+<table data-layout="default">
+<thead>
+<tr>
+<th><p>Ticket</p></th>
+<th><p>Status</p></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><p>PROJ-123</p></td>
+<td><p><ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">PROJ-123</ac:parameter></ac:structured-macro></p></td>
+</tr>
+<tr>
+<td><p>PROJ-456</p></td>
+<td><p>In Progress</p></td>
+</tr>
+</tbody>
+</table>
+<h2>Test 3: Multiple CSF in one paragraph</h2>
+<p>Build status: <ac:emoticon ac:name="tick"/> Tests pass and <ac:emoticon ac:name="cross"/> Deploy failed.</p>
+<h2>Test 4: CSF in list item</h2>
+<ul>
+<li><p>Item with status <ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Red</ac:parameter><ac:parameter ac:name="title">TODO</ac:parameter></ac:structured-macro> marker</p></li>
+<li><p>Regular item without CSF</p></li>
+<li><p>Another item with <ac:emoticon ac:name="warning"/> warning</p></li>
+</ul>
+<h2>Test 5: Block-level CSF comment</h2>
+<p>Paragraph before the macro.</p>
+<ac:structured-macro ac:name="info"><ac:rich-text-body><p>This is an info panel inserted via comment syntax.</p></ac:rich-text-body></ac:structured-macro>
+<p>Paragraph after the macro.</p>
+<h2>Test 6: CSF with multiline XML</h2>
+<p>Testing multiline CSF comment:</p>
+<ac:structured-macro ac:name="panel"><ac:parameter ac:name="title">Panel Title</ac:parameter><ac:parameter ac:name="bgColor">#E3FCEF</ac:parameter><ac:rich-text-body><p>This panel was embedded using <strong>multiline</strong> CSF comment syntax.</p></ac:rich-text-body></ac:structured-macro>
+<p>End of tests.</p>

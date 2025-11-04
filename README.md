@@ -435,6 +435,22 @@ Use the pseudo-language `csf` in a Markdown code block to pass content directly 
 ```
 ````
 
+For inline CSF (within paragraphs, table cells, or list items), use HTML comment syntax with the `csf:` prefix. This is useful for embedding Confluence macros inline with text, such as Jira ticket references or status indicators:
+
+```markdown
+This feature is tracked in <!-- csf: <ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">PROJ-123</ac:parameter></ac:structured-macro> --> and the status is <!-- csf: <ac:structured-macro ac:name="status"><ac:parameter ac:name="colour">Green</ac:parameter><ac:parameter ac:name="title">DONE</ac:parameter></ac:structured-macro> -->.
+```
+
+Inline CSF comments can also be used in table cells:
+
+```markdown
+| Ticket | Status |
+|--------|--------|
+| PROJ-123 | <!-- csf: <ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">PROJ-123</ac:parameter></ac:structured-macro> --> |
+```
+
+**Note:** Block-level CSF should use the ` ```csf ` code block syntax shown above, while inline CSF should use the HTML comment syntax `<!-- csf: ... -->`.
+
 ### Ignoring files
 
 Skip files and subdirectories in a directory with rules defined in `.mdignore`. Each rule should occupy a single line. Rules follow the syntax (and constraints) of [fnmatch](https://docs.python.org/3/library/fnmatch.html#fnmatch.fnmatch). Specifically, `?` matches any single character, and `*` matches zero or more characters. For example, use `up-*.md` to exclude Markdown files that start with `up-`. Lines that start with `#` are treated as comments.
