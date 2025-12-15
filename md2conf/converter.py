@@ -37,6 +37,7 @@ from .markdown import markdown_to_html
 from .mermaid import MermaidConfigProperties
 from .metadata import ConfluenceSiteMetadata
 from .scanner import MermaidScanner, ScannedDocument, Scanner
+from .svg import fix_svg_dimensions, get_svg_dimensions, get_svg_dimensions_from_bytes
 from .toc import TableOfContentsBuilder
 from .uri import is_absolute_url, to_uuid_urn
 from .xml import element_to_text
@@ -401,6 +402,7 @@ class ImageAttributes:
     :param title: Title text (a.k.a. image tooltip).
     :param caption: Caption text (shown below figure).
     :param alignment: Alignment for block-level images.
+    :param display_width: Constrained display width in pixels (if different from natural width).
     """
 
     context: FormattingContext
@@ -410,6 +412,7 @@ class ImageAttributes:
     title: Optional[str]
     caption: Optional[str]
     alignment: ImageAlignment = ImageAlignment.CENTER
+    display_width: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.caption is None and self.context is FormattingContext.BLOCK:
@@ -434,7 +437,9 @@ class ImageAttributes:
                 attributes[AC_ATTR("original-height")] = str(self.height)
             if self.width is not None:
                 attributes[AC_ATTR("custom-width")] = "true"
-                attributes[AC_ATTR("width")] = str(self.width)
+                # Use display_width if set, otherwise use natural width
+                effective_width = self.display_width or self.width
+                attributes[AC_ATTR("width")] = str(effective_width)
 
         elif self.context is FormattingContext.INLINE:
             if self.width is not None:
@@ -489,6 +494,7 @@ class ConfluenceConverterOptions:
     :param alignment: Alignment for block-level images and formulas.
     :param use_panel: Whether to transform admonitions and alerts into a Confluence custom panel.
     :param skip_title_heading: Whether to remove the first heading from document body when used as page title.
+    :param max_image_width: Maximum display width for images in pixels.
     """
 
     ignore_invalid_url: bool = False
@@ -503,6 +509,7 @@ class ConfluenceConverterOptions:
     use_panel: bool = False
     render_kroki: bool = True
     skip_title_heading: bool = False
+    max_image_width: Optional[int] = None
 
 
 @dataclass
@@ -594,6 +601,19 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         self.site_metadata = site_metadata
         self.page_metadata = page_metadata
         self.kroki_server = kroki_server
+
+    def _calculate_display_width(self, natural_width: Optional[int]) -> Optional[int]:
+        """
+        Calculate the display width for an image, applying max_image_width constraint if set.
+
+        :param natural_width: The natural width of the image in pixels.
+        :returns: The constrained display width, or None if no constraint is needed.
+        """
+        if natural_width is None or self.options.max_image_width is None:
+            return None
+        if natural_width <= self.options.max_image_width:
+            return None  # No constraint needed, image is already within limits
+        return self.options.max_image_width
 
     def _transform_heading(self, heading: ElementType) -> None:
         """
@@ -805,7 +825,14 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         pixel_width = int(width) if width is not None and width.isdecimal() else None
         pixel_height = int(height) if height is not None and height.isdecimal() else None
         attrs = ImageAttributes(
-            context, width=pixel_width, height=pixel_height, alt=alt, title=title, caption=None, alignment=ImageAlignment(self.options.alignment)
+            context,
+            width=pixel_width,
+            height=pixel_height,
+            alt=alt,
+            title=title,
+            caption=None,
+            alignment=ImageAlignment(self.options.alignment),
+            display_width=self._calculate_display_width(pixel_width),
         )
 
         if is_absolute_url(src):
@@ -876,6 +903,21 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
             png_file = absolute_path.with_suffix(".png")
             if png_file.exists():
                 absolute_path = png_file
+
+        # infer SVG dimensions if not already specified
+        if absolute_path.suffix == ".svg" and attrs.width is None and attrs.height is None:
+            svg_width, svg_height = get_svg_dimensions(absolute_path)
+            if svg_width is not None:
+                attrs = ImageAttributes(
+                    context=attrs.context,
+                    width=svg_width,
+                    height=svg_height,
+                    alt=attrs.alt,
+                    title=attrs.title,
+                    caption=attrs.caption,
+                    alignment=attrs.alignment,
+                    display_width=self._calculate_display_width(svg_width),
+                )
 
         self.images.append(ImageData(absolute_path, attrs.alt))
         image_name = attachment_name(path_relative_to(absolute_path, self.base_dir))
@@ -1067,8 +1109,29 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
                 content = f.read()
             config = self._extract_mermaid_config(content)
             image_data = mermaid.render_diagram(content, self.options.diagram_output_format, config=config)
+
+            # Extract dimensions and fix SVG if that's the output format
+            if self.options.diagram_output_format == "svg":
+                # Fix SVG to have explicit width/height instead of percentages
+                image_data = fix_svg_dimensions(image_data)
+
+                if attrs.width is None and attrs.height is None:
+                    svg_width, svg_height = get_svg_dimensions_from_bytes(image_data)
+                    if svg_width is not None or svg_height is not None:
+                        attrs = ImageAttributes(
+                            context=attrs.context,
+                            width=svg_width,
+                            height=svg_height,
+                            alt=attrs.alt,
+                            title=attrs.title,
+                            caption=attrs.caption,
+                            alignment=attrs.alignment,
+                            display_width=self._calculate_display_width(svg_width),
+                        )
+
             image_filename = attachment_name(relative_path.with_suffix(f".{self.options.diagram_output_format}"))
             self.embedded_files[image_filename] = EmbeddedFileData(image_data, attrs.alt)
+
             return self._create_attached_image(image_filename, attrs)
         else:
             self.images.append(ImageData(absolute_path, attrs.alt))
@@ -1081,10 +1144,31 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         if self.options.render_mermaid:
             config = self._extract_mermaid_config(content)
             image_data = mermaid.render_diagram(content, self.options.diagram_output_format, config=config)
+
+            # Extract dimensions and fix SVG if that's the output format
+            attrs = ImageAttributes.EMPTY_BLOCK
+            if self.options.diagram_output_format == "svg":
+                # Fix SVG to have explicit width/height instead of percentages
+                image_data = fix_svg_dimensions(image_data)
+
+                svg_width, svg_height = get_svg_dimensions_from_bytes(image_data)
+                if svg_width is not None or svg_height is not None:
+                    attrs = ImageAttributes(
+                        context=FormattingContext.BLOCK,
+                        width=svg_width,
+                        height=svg_height,
+                        alt=None,
+                        title=None,
+                        caption=None,
+                        alignment=ImageAlignment(self.options.alignment),
+                        display_width=self._calculate_display_width(svg_width),
+                    )
+
             image_hash = hashlib.md5(image_data).hexdigest()
             image_filename = attachment_name(f"embedded_{image_hash}.{self.options.diagram_output_format}")
             self.embedded_files[image_filename] = EmbeddedFileData(image_data)
-            return self._create_attached_image(image_filename, ImageAttributes.EMPTY_BLOCK)
+
+            return self._create_attached_image(image_filename, attrs)
         else:
             mermaid_data = content.encode("utf-8")
             mermaid_hash = hashlib.md5(mermaid_data).hexdigest()
@@ -1489,7 +1573,16 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         if self.options.diagram_output_format == "png":
             width, height = get_png_dimensions(data=image_data)
             image_data = remove_png_chunks(["pHYs"], source_data=image_data)
-            attrs = ImageAttributes(context, width=width, height=height, alt=content, title=None, caption="", alignment=ImageAlignment(self.options.alignment))
+            attrs = ImageAttributes(
+                context,
+                width=width,
+                height=height,
+                alt=content,
+                title=None,
+                caption="",
+                alignment=ImageAlignment(self.options.alignment),
+                display_width=self._calculate_display_width(width),
+            )
         else:
             attrs = ImageAttributes.empty(context)
 

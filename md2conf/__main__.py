@@ -39,6 +39,7 @@ class Arguments(argparse.Namespace):
     heading_anchors: bool
     root_page: Optional[str]
     keep_hierarchy: bool
+    prefer_raster: bool
     generated_by: Optional[str]
     render_drawio: bool
     render_mermaid: bool
@@ -54,6 +55,7 @@ class Arguments(argparse.Namespace):
     render_kroki: bool
     kroki_image: str
     skip_title_heading: bool
+    max_image_width: Optional[int]
 
 
 class KwargsAppendAction(argparse.Action):
@@ -225,6 +227,19 @@ def get_parser() -> argparse.ArgumentParser:
         help="Format for rendering Mermaid and draw.io diagrams (default: 'png').",
     )
     parser.add_argument(
+        "--prefer-raster",
+        dest="prefer_raster",
+        action="store_true",
+        default=True,
+        help="Prefer PNG over SVG when both exist (default: enabled).",
+    )
+    parser.add_argument(
+        "--no-prefer-raster",
+        dest="prefer_raster",
+        action="store_false",
+        help="Use SVG files directly instead of preferring PNG equivalents.",
+    )
+    parser.add_argument(
         "--heading-anchors",
         action="store_true",
         default=False,
@@ -319,6 +334,14 @@ def get_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Keep the first heading in document body even when used as page title.",
     )
+    parser.add_argument(
+        "--max-image-width",
+        dest="max_image_width",
+        type=int,
+        default=None,
+        help="Maximum display width for images in pixels. Images wider than this will be scaled down "
+        "for display while preserving the original size for full-size viewing.",
+    )
     return parser
 
 
@@ -359,6 +382,7 @@ def main() -> None:
         generated_by=args.generated_by,
         root_page_id=ConfluencePageID(args.root_page) if args.root_page else None,
         keep_hierarchy=args.keep_hierarchy,
+        prefer_raster=args.prefer_raster,
         render_drawio=args.render_drawio,
         render_mermaid=args.render_mermaid,
         render_latex=args.render_latex,
@@ -369,6 +393,7 @@ def main() -> None:
         render_kroki=args.render_kroki,
         kroki_image=args.kroki_image,
         skip_title_heading=args.skip_title_heading,
+        max_image_width=args.max_image_width,
     )
 
     if args.local:

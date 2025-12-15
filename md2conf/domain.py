@@ -38,6 +38,8 @@ class ConfluenceDocumentOptions:
     :param render_kroki: Whether to render Kroki-supported diagrams using a Docker-managed Kroki server.
     :param kroki_image: Docker image to use for the Kroki server.
     :param skip_title_heading: Whether to remove the first heading from document body when used as page title.
+    :param max_image_width: Maximum display width for images in pixels. Images wider than this
+        will be scaled down for display while preserving the original size for full-size viewing.
     """
 
     ignore_invalid_url: bool = False
@@ -56,3 +58,4 @@ class ConfluenceDocumentOptions:
     render_kroki: bool = True
     kroki_image: str = "yuzutech/kroki"
     skip_title_heading: bool = False
+    max_image_width: Optional[int] = None
