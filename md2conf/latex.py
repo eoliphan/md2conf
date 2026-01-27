@@ -17,11 +17,17 @@ def render_latex(expression: str, *, format: Literal["png", "svg"] = "png", dpi:
     """
     Generates a PNG or SVG image of a LaTeX math expression using `matplotlib` for rendering.
 
-    :param expression: A LaTeX math expression, e.g., r'\frac{a}{b}'.
+    :param expression: A LaTeX math expression, e.g., r'\frac{a}{b}', or wrapped with delimiters like r'\(...\)' or r'\[...\]'.
     :param format: Output image format.
     :param dpi: Output image resolution (if applicable).
     :param font_size: Font size of the LaTeX text (if applicable).
     """
+
+    # Strip LaTeX delimiters if present (from \(...\) or \[...\])
+    if expression.startswith(r"\(") and expression.endswith(r"\)"):
+        expression = expression[2:-2]
+    elif expression.startswith(r"\[") and expression.endswith(r"\]"):
+        expression = expression[2:-2]
 
     with BytesIO() as f:
         _render_latex(expression, f, format=format, dpi=dpi, font_size=font_size)

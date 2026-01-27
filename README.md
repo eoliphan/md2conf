@@ -377,20 +377,33 @@ External images referenced with an absolute URL retain the original URL.
 
 ### LaTeX math formulas
 
-Inline formulas can be enclosed with `$` signs, or delimited with `\(` and `\)`, i.e.
-
-* the code `$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$` is shown as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$,
-* and `\(\lim _{x\rightarrow \infty }\frac{1}{x}=0\)` is shown as $\lim _{x\rightarrow \infty }\frac{1}{x}=0$.
-
-Block formulas can be enclosed with `$$`, or wrapped in code blocks specifying the language `math`:
+Inline formulas are delimited with `\(` and `\)`:
 
 ```markdown
-$$\int _{a}^{b}f(x)dx=F(b)-F(a)$$
+\(\sum_{i=1}^{n} i = \frac{n(n+1)}{2}\)
+```
+
+is shown as $\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$
+
+Block formulas are delimited with `\[` and `\]`:
+
+```markdown
+\[\int _{a}^{b}f(x)dx=F(b)-F(a)\]
 ```
 
 is shown as
 
 $$\int _{a}^{b}f(x)dx=F(b)-F(a)$$
+
+Alternatively, you can use fenced code blocks with the language `math`:
+
+```markdown
+```math
+E = mc^2
+```
+```
+
+**Note:** *md2conf* uses `\(` and `\)` for inline math and `\[` and `\]` for block math to avoid conflicts with dollar signs in code (e.g., bash variables like `$BRANCH`). The traditional `$...$` syntax is not supported.
 
 Displaying math formulas in Confluence requires the extension [LaTeX Math for Confluence - Math Formula & Equations](https://help.narva.net/latex-math-for-confluence/).
 
@@ -450,6 +463,72 @@ Inline CSF comments can also be used in table cells:
 ```
 
 **Note:** Block-level CSF should use the ` ```csf ` code block syntax shown above, while inline CSF should use the HTML comment syntax `<!-- csf: ... -->`.
+
+### Macro Shorthand Syntax
+
+To reduce verbosity and improve readability, *md2conf* provides shorthand syntax for common Confluence macros using the `<!-- macro:name: parameters -->` format. These macros expand to full CSF automatically during conversion.
+
+#### JIRA Macro
+
+The JIRA macro embeds Jira ticket references inline:
+
+```markdown
+See ticket <!-- macro:jira: PROJ-123 --> for details.
+
+This ticket <!-- macro:jira: PROJ-456, showSummary=false --> hides the summary.
+```
+
+**Syntax:** `<!-- macro:jira: KEY, showSummary=true|false -->`
+
+**Parameters:**
+- `KEY` (required): The Jira issue key (e.g., PROJ-123)
+- `showSummary` (optional): Display issue summary (default: `true`)
+
+#### Status Macro
+
+The status macro displays colored status indicators:
+
+```markdown
+Build status: <!-- macro:status: green, Passing -->
+
+Deploy: <!-- macro:status: red, Failed -->
+```
+
+**Syntax:** `<!-- macro:status: color, title -->` or `<!-- macro:status: color="green", title="Done" -->`
+
+**Parameters:**
+- `color` (required): Status color (`green`, `yellow`, `red`, `blue`, `grey`)
+- `title` (required): Status text to display
+
+#### Emoticon Macro
+
+The emoticon macro inserts Confluence emoticons:
+
+```markdown
+Tests pass <!-- macro:emoticon: tick --> but deploy failed <!-- macro:emoticon: cross -->.
+
+Warning <!-- macro:emoticon: warning --> about deprecated feature.
+```
+
+**Syntax:** `<!-- macro:emoticon: name -->`
+
+**Parameters:**
+- `name` (required): Emoticon name (`tick`, `cross`, `warning`, `info`, `thumbs-up`, etc.)
+
+#### Using Macros in Tables
+
+Macros work seamlessly in table cells:
+
+```markdown
+| Ticket | Status | Result |
+|--------|--------|--------|
+| <!-- macro:jira: PROJ-123 --> | <!-- macro:status: green, Done --> | <!-- macro:emoticon: tick --> |
+```
+
+**Benefits:**
+- **Concise:** ~85% shorter than raw CSF XML
+- **Readable:** Easy to understand in markdown source
+- **Compatible:** Works alongside raw CSF syntax
 
 ### Ignoring files
 

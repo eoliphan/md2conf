@@ -1,0 +1,56 @@
+<ac:structured-macro ac:name="info" ac:schema-version="1">
+  <ac:rich-text-body>
+    <p>This page has been generated with a tool.</p>
+  </ac:rich-text-body>
+</ac:structured-macro>
+<h1>Lists Without Blank Lines Test</h1>
+<p>This document tests that lists can immediately follow paragraphs without requiring a blank line separator, which is standard Markdown/CommonMark behavior.</p>
+<h2>Unordered list after paragraph</h2>
+<p>This is a paragraph that ends with a period.</p>
+<ul>
+<li><p>Item 1</p></li>
+<li><p>Item 2</p></li>
+<li><p>Item 3</p></li>
+</ul>
+<h2>Ordered list after paragraph</h2>
+<p>Another paragraph text here, ending with punctuation.</p>
+<ol start="1">
+<li><p>First item</p></li>
+<li><p>Second item</p></li>
+<li><p>Third item</p></li>
+</ol>
+<h2>Multiple consecutive lists</h2>
+<p>Text before the first list.</p>
+<ul>
+<li><p>Unordered item A</p></li>
+<li><p>Unordered item B</p></li>
+</ul>
+<p>Text between lists.</p>
+<ol start="1">
+<li><p>Ordered item 1</p></li>
+<li><p>Ordered item 2</p></li>
+</ol>
+<h2>Nested lists without blank lines</h2>
+<p>Paragraph before nested list structure.</p>
+<ul>
+<li><p>Top level item</p></li>
+<li><p>Nested item 1</p></li>
+<li><p>Nested item 2</p></li>
+<li><p>Another top level item   1. Nested ordered 1   2. Nested ordered 2</p></li>
+</ul>
+<h2>Mixed content</h2>
+<p>Some introductory text.</p>
+<ul>
+<li><p>List item after text</p></li>
+<li><p>Another list item</p></li>
+</ul>
+<p>More text in between.</p>
+<ul>
+<li><p>Different marker style</p></li>
+<li><p>Another item with asterisk</p></li>
+</ul>
+<p>Final paragraph.</p>
+<ol start="1">
+<li><p>Last ordered item</p></li>
+<li><p>Another ordered item</p></li>
+</ol>

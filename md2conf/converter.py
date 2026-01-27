@@ -31,6 +31,7 @@ from .emoticon import emoji_to_emoticon
 from .environment import PageError
 from .extra import override, path_relative_to
 from .latex import get_png_dimensions, remove_png_chunks, render_latex
+from .macros import expand_macros
 from .markdown import markdown_to_html
 from .mermaid import MermaidConfigProperties
 from .metadata import ConfluenceSiteMetadata
@@ -1825,9 +1826,13 @@ class ConfluenceDocument:
         for data_uri, color in status_images.items():
             lines.append(f"[STATUS-{color.upper()}]: {data_uri}")
         lines.append(document.text)
+        text = "\n".join(lines)
+
+        # expand macro comments before markdown conversion
+        text = expand_macros(text)
 
         # parse Markdown document and convert to HTML
-        html = markdown_to_html("\n".join(lines))
+        html = markdown_to_html(text)
 
         # modify HTML as necessary
         if self.options.generated_by is not None:

@@ -1,0 +1,16 @@
+<ac:structured-macro ac:name="info" ac:schema-version="1"><ac:rich-text-body><p>This page has been generated with a tool.</p></ac:rich-text-body></ac:structured-macro><h2>Bash Code with Dollar Signs</h2><p>This test ensures that bash variables with dollar signs are not mistaken for LaTeX formulas.</p><h3>Fenced Code Block</h3><ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[#!/bin/bash
+
+BRANCH="feature/test"
+
+if [ "$BRANCH" = "master" ] || [ "$BRANCH" = "develop" ]; then
+    echo "Building branch: $BRANCH"
+    export VERSION="1.0.0"
+    echo "Version: $VERSION"
+fi
+
+# Multiple dollar signs in one line
+TEST="$VAR1 $VAR2 $VAR3"
+
+# Dollar signs with special characters
+PATH="$HOME/bin:$PATH"
+FILE="${PROJECT_ROOT}/data/${ENVIRONMENT}.json"]]></ac:plain-text-body></ac:structured-macro><h3>Inline Code</h3><p>You can use <code>$BRANCH</code> and <code>$VERSION</code> variables in bash scripts.</p><h3>Mixed with LaTeX</h3><p>Bash code: <code>$BRANCH</code></p><p>LaTeX formula: <ac:structured-macro ac:name="eazy-math-inline" ac:schema-version="1" ac:local-id="UUID" ac:macro-id="UUID"><ac:parameter ac:name="body">\(x = \frac{-b \pm \sqrt{b^2-4ac}}{2a}\)</ac:parameter><ac:parameter ac:name="align">center</ac:parameter></ac:structured-macro></p><p>More bash:</p><ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">bash</ac:parameter><ac:plain-text-body><![CDATA[echo "Value: $MY_VAR"]]></ac:plain-text-body></ac:structured-macro><p>More LaTeX:</p><ac:structured-macro ac:name="easy-math-block" ac:schema-version="1" data-layout="default" ac:local-id="UUID" ac:macro-id="UUID"><ac:parameter ac:name="body">\[E = mc^2\]</ac:parameter><ac:parameter ac:name="align">center</ac:parameter></ac:structured-macro>
