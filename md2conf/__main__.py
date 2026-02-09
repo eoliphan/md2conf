@@ -97,6 +97,12 @@ class PositionalOnlyHelpFormatter(argparse.HelpFormatter):
 
 
 def get_parser() -> argparse.ArgumentParser:
+    deprecated: dict[str, Any]
+    if sys.version_info >= (3, 13):
+        deprecated = {"deprecated": True}
+    else:
+        deprecated = {}
+
     parser = argparse.ArgumentParser(formatter_class=PositionalOnlyHelpFormatter)
     parser.prog = os.path.basename(os.path.dirname(__file__))
     parser.add_argument("--version", action="version", version=__version__)
