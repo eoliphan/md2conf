@@ -61,6 +61,51 @@ def extract_frontmatter_properties(text: str) -> tuple[Optional[dict[str, JsonTy
 
 
 @dataclass
+class SkillProperties:
+    """
+    An object that holds skill-specific properties extracted from the front-matter of a Markdown document.
+
+    :param name: The skill name (lowercase alphanumeric + hyphens).
+    :param description: A short description of the skill.
+    :param version: Skill version string.
+    :param allowed_tools: Comma-separated list of allowed tools.
+    :param argument_hint: Hint text for the skill argument.
+    :param model: Model to use for the skill.
+    :param disable_model_invocation: Whether to disable model invocation.
+    :param user_invocable: Whether the skill can be invoked by the user.
+    """
+
+    name: Optional[str] = None
+    description: Optional[str] = None
+    version: Optional[str] = None
+    allowed_tools: Optional[str] = None
+    argument_hint: Optional[str] = None
+    model: Optional[str] = None
+    disable_model_invocation: Optional[bool] = None
+    user_invocable: Optional[bool] = None
+
+
+_SKILL_KEYS = {"name", "description", "version", "allowed-tools", "argument-hint", "model", "disable-model-invocation", "user-invocable"}
+
+
+def _extract_skill_properties(data: dict[str, JsonType]) -> Optional["SkillProperties"]:
+    """Extracts skill properties from top-level frontmatter keys.
+
+    Detects a skill source file by the presence of a 'description' key (the required
+    skill field). Returns None if no skill fields are found.
+    """
+
+    if "description" not in data:
+        return None
+
+    normalized = {k.replace("-", "_"): v for k, v in data.items() if k in _SKILL_KEYS}
+    if not normalized:
+        return None
+
+    return _json_to_object(SkillProperties, normalized)
+
+
+@dataclass
 class DocumentProperties:
     """
     An object that holds properties extracted from the front-matter of a Markdown document.
@@ -102,6 +147,7 @@ class ScannedDocument:
     :param synchronized: True if the document content is parsed and synchronized with Confluence.
     :param properties: A dictionary of key-value pairs extracted from front-matter to apply as page properties.
     :param alignment: Alignment for block-level images and formulas.
+    :param skill: Skill-specific properties for Claude Code skill generation.
     :param text: Text that remains after front-matter and inline properties have been extracted.
     """
 
@@ -113,6 +159,7 @@ class ScannedDocument:
     synchronized: Optional[bool]
     properties: Optional[dict[str, JsonType]]
     alignment: Optional[Literal["center", "left", "right"]]
+    skill: Optional[SkillProperties]
     text: str
 
 
@@ -140,10 +187,14 @@ class Scanner:
         synchronized: Optional[bool] = None
         properties: Optional[dict[str, JsonType]] = None
         alignment: Optional[Literal["center", "left", "right"]] = None
+        skill: Optional[SkillProperties] = None
 
         # extract front-matter
         data, text = extract_frontmatter_properties(text)
         if data is not None:
+            # extract skill properties from top-level frontmatter keys before DocumentProperties deserialization
+            skill = _extract_skill_properties(data)
+
             p = _json_to_object(DocumentProperties, data)
             page_id = page_id or p.confluence_page_id or p.page_id
             space_key = space_key or p.confluence_space_key or p.space_key
@@ -163,6 +214,7 @@ class Scanner:
             synchronized=synchronized,
             properties=properties,
             alignment=alignment,
+            skill=skill,
             text=text,
         )
 

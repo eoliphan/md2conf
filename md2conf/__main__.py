@@ -26,7 +26,7 @@ from .metadata import ConfluenceSiteMetadata
 
 
 class Arguments(argparse.Namespace):
-    mdpath: Path
+    mdpath: Optional[str]
     domain: Optional[str]
     path: Optional[str]
     api_url: Optional[str]
@@ -45,6 +45,8 @@ class Arguments(argparse.Namespace):
     render_latex: bool
     diagram_output_format: Literal["png", "svg"]
     local: bool
+    skill: bool
+    out_dir: Optional[str]
     headers: dict[str, str]
     webui_links: bool
     alignment: Literal["center", "left", "right"]
@@ -96,7 +98,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(formatter_class=PositionalOnlyHelpFormatter)
     parser.prog = os.path.basename(os.path.dirname(__file__))
     parser.add_argument("--version", action="version", version=__version__)
-    parser.add_argument("mdpath", help="Path to Markdown file or directory to convert and publish.")
+    parser.add_argument("mdpath", nargs="?", default=None, help="Path to Markdown file or directory to convert and publish.")
     parser.add_argument("-d", "--domain", help="Confluence organization domain.")
     parser.add_argument("-p", "--path", help="Base path for Confluence (default: '/wiki/').")
     parser.add_argument(
@@ -238,6 +240,19 @@ def get_parser() -> argparse.ArgumentParser:
         help="Write XHTML-based Confluence Storage Format files locally without invoking Confluence API.",
     )
     parser.add_argument(
+        "--skill",
+        action="store_true",
+        default=False,
+        help="Generate a Claude Code skill for md2conf.",
+    )
+    parser.add_argument(
+        "-o",
+        "--out-dir",
+        dest="out_dir",
+        default=None,
+        help="Output directory for --skill or --local mode (default: source directory).",
+    )
+    parser.add_argument(
         "--headers",
         nargs="+",
         required=False,
@@ -279,12 +294,24 @@ def main() -> None:
     args = Arguments()
     parser.parse_args(namespace=args)
 
-    args.mdpath = Path(args.mdpath)
-
     logging.basicConfig(
         level=getattr(logging, args.loglevel.upper(), logging.INFO),
         format="%(asctime)s - %(levelname)s - %(funcName)s [%(lineno)d] - %(message)s",
     )
+
+    out_dir = Path(args.out_dir) if args.out_dir else None
+
+    if args.skill:
+        from .skill import generate_skill
+
+        skill_out = out_dir or Path.cwd()
+        generate_skill(skill_out)
+        return
+
+    if args.mdpath is None:
+        parser.error("the following arguments are required: mdpath")
+
+    mdpath = Path(args.mdpath)
 
     options = ConfluenceDocumentOptions(
         heading_anchors=args.heading_anchors,
@@ -300,6 +327,7 @@ def main() -> None:
         alignment=args.alignment,
         use_panel=args.use_panel,
     )
+
     if args.local:
         from .local import LocalConverter
 
@@ -316,7 +344,7 @@ def main() -> None:
             base_path=site_properties.base_path,
             space_key=site_properties.space_key,
         )
-        LocalConverter(options, site_metadata).process(args.mdpath)
+        LocalConverter(options, site_metadata, out_dir).process(mdpath)
     else:
         from requests import HTTPError, JSONDecodeError
 
@@ -341,7 +369,7 @@ def main() -> None:
                 Publisher(
                     api,
                     options,
-                ).process(args.mdpath)
+                ).process(mdpath)
         except HTTPError as err:
             logging.error(err)
 
