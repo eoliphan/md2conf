@@ -58,14 +58,11 @@ python -m md2conf \
   path/to/file.md
 ```
 
-## Auto-Detection Behavior
+## Default Behavior
 
-If you **don't** set `CONFLUENCE_DEPLOYMENT_TYPE`, md2conf will auto-detect based on domain:
+If you **don't** set `CONFLUENCE_DEPLOYMENT_TYPE`, md2conf defaults to REST API v2 (Confluence Cloud behavior). There is no domain-based auto-detection.
 
-- **`*.atlassian.net`** → Treats as Cloud, uses REST API v2
-- **All other domains** → Treats as Data Center/Server, uses REST API v1
-
-For Data Center instances, we recommend **explicitly setting** `deployment_type` to avoid ambiguity.
+For Data Center or Server instances, always **explicitly set** `deployment_type` to avoid using the wrong API version.
 
 ## API Version Differences
 

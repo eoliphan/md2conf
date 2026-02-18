@@ -60,9 +60,9 @@ CONFLUENCE_SPACE_KEY='<your space key>'
 CONFLUENCE_DEPLOYMENT_TYPE='datacenter'  # or 'server'
 CONFLUENCE_DOMAIN='confluence.company.com'
 CONFLUENCE_PATH='/wiki/'
-CONFLUENCE_USER_NAME='<your username>'
-CONFLUENCE_API_KEY='<your api key>'
+CONFLUENCE_API_KEY='<your personal access token>'
 CONFLUENCE_SPACE_KEY='<your space key>'
+CONFLUENCE_USER_NAME='<your username>'  # Optional: omit to use Bearer token auth (recommended)
 ```
 
 Running the tests:

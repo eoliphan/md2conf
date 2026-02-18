@@ -39,14 +39,17 @@ python -m mypy integration_tests
 
 ### Running the Application
 ```bash
-# Single file
+# Single file (Cloud)
 python3 -m md2conf path/to/file.md
 
 # Directory (recursive)
 python3 -m md2conf path/to/directory/
 
-# With options
+# With options (Cloud)
 python3 -m md2conf -d example.atlassian.net -s SPACE path/to/file.md
+
+# Data Center/Server
+python3 -m md2conf -d confluence.company.com --deployment-type datacenter -s SPACE path/to/file.md
 
 # Local mode (generates .csf files without API calls)
 python3 -m md2conf --local path/to/file.md
@@ -69,14 +72,14 @@ python3 -m md2conf --local path/to/file.md
    - Creates/updates pages and maintains hierarchy
    - Handles page metadata (titles, labels, content properties)
 
-4. **Converter** (`converter.py`, 1884 lines) - The largest and most complex module:
+4. **Converter** (`converter.py`, 1924 lines) - The largest and most complex module:
    - Converts Markdown to Confluence Storage Format (XHTML with Confluence-specific tags)
    - Handles images, attachments, diagrams (draw.io, Mermaid), LaTeX formulas
    - Processes relative links, code blocks, tables, admonitions, emojis
    - Manages attachment uploads and URL resolution
    - Implements `ConfluenceDocument` class with `create()` factory method
 
-5. **API** (`api.py`, 1201 lines) - Confluence REST API client:
+5. **API** (`api.py`, 1762 lines) - Confluence REST API client:
    - Supports both REST API v1 (Data Center/Server) and v2 (Cloud)
    - Handles authentication (Basic with username/API key, or Bearer with token)
    - Implements `ConfluenceSession` for page/space/attachment operations
@@ -96,8 +99,7 @@ The architecture supports both Confluence Cloud (v2 API) and Data Center/Server 
 **Version Detection (`ConfluenceSession._detect_api_version`)**:
 - **Data Center/Server**: Explicit `deployment_type='datacenter'` or `'server'` → uses v1
 - **Cloud**: Explicit `deployment_type='cloud'` → uses v2
-- **Auto-detect**: `*.atlassian.net` domains → v2, all others → v1
-- **Default**: When deployment_type is None → v2 (for backward compatibility)
+- **Default**: When deployment_type is None → v2 (for backward compatibility; no domain-based auto-detection is performed)
 
 **API Routing Pattern**:
 - Each public API method (e.g., `get_page`, `create_page`) checks `self.api_version`
@@ -134,6 +136,8 @@ The architecture supports both Confluence Cloud (v2 API) and Data Center/Server 
 - **domain.py** - Core data types (ConfluenceDocumentOptions, ConfluencePageID)
 - **environment.py** - Configuration and error types (ConfluenceConnectionProperties, custom exceptions)
 - **metadata.py** - Site and page metadata structures
+- **macros.py** - Macro expansion facility; shorthand syntax (`<!-- macro:name: params -->`) for common Confluence macros (jira, status, emoticon) that expand to CSF comments
+- **skill.py** - Claude Code skill generation; `generate_skill()` writes a `.md` skill file from the package's own documentation
 
 ### Page Association
 
@@ -179,10 +183,12 @@ CONFLUENCE_API_URL='https://api.atlassian.com/ex/confluence/CLOUD_ID/'  # For sc
 ```bash
 CONFLUENCE_DOMAIN='confluence.company.com'
 CONFLUENCE_DEPLOYMENT_TYPE='datacenter'  # or 'server'
+CONFLUENCE_PATH='/wiki/'                 # Defaults to '/wiki/' if not set; adjust for your instance
 CONFLUENCE_API_KEY='your-personal-access-token'
 CONFLUENCE_SPACE_KEY='SPACE'
-# NOTE: Do NOT set CONFLUENCE_USER_NAME for Data Center - use Bearer token auth only
-# NOTE: Do NOT use CONFLUENCE_PATH - API is at root domain, not /wiki/
+# NOTE: CONFLUENCE_USER_NAME is optional.
+#   If set: uses Basic auth (username + API key).
+#   If omitted: uses Bearer token auth (recommended for Data Center PATs).
 ```
 
 ### Permissions for Scoped API Tokens

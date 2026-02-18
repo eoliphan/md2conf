@@ -32,7 +32,7 @@ This Python package
 * [Mermaid diagrams](https://mermaid.live/)
 * Confluence status labels and date widget
 
-Whenever possible, the implementation uses [Confluence REST API v2](https://developer.atlassian.com/cloud/confluence/rest/v2/) for Confluence Cloud, and automatically falls back to [Confluence REST API v1](https://developer.atlassian.com/cloud/confluence/rest/v1/) for Confluence Data Center and Server deployments.
+The implementation uses [Confluence REST API v2](https://developer.atlassian.com/cloud/confluence/rest/v2/) for Confluence Cloud and [Confluence REST API v1](https://developer.atlassian.com/cloud/confluence/rest/v1/) for Confluence Data Center and Server deployments, with routing determined by the configured deployment type.
 
 ## Confluence Data Center and Server Support
 
@@ -56,38 +56,41 @@ export CONFLUENCE_DEPLOYMENT_TYPE='datacenter'  # or 'server' or 'cloud'
 python -m md2conf --deployment-type datacenter path/to/file.md
 ```
 
-### Auto-Detection
+### Default Behavior
 
-If no deployment type is specified, md2conf will:
-* Use **REST API v2** for `*.atlassian.net` domains (Confluence Cloud)
-* Use **REST API v1** for all other domains (self-hosted Data Center/Server)
+If no deployment type is specified, md2conf defaults to REST API v2 (Confluence Cloud behavior). For Data Center or Server installations, always set the deployment type explicitly:
 
-### Known Limitations
+```sh
+export CONFLUENCE_DEPLOYMENT_TYPE='datacenter'  # or 'server'
+```
 
-When using Confluence Data Center or Server (REST API v1):
-* Some advanced features available in v2 may not be available
-* Page creation/update uses v1 endpoints with space keys instead of space IDs
-* Property and label operations use v1 pagination (start/limit instead of cursor-based)
+### Implementation Differences
+
+REST API v1 and v2 use different patterns internally, which md2conf handles transparently:
+* v1 uses space keys in URLs; v2 uses space IDs
+* v1 uses offset-based pagination (start/limit); v2 uses cursor-based pagination
+* v1 property updates require a key-lookup request before update or delete
 
 ### Example Usage for Data Center
 
 ```sh
-# Using environment variable
+# Using Bearer token authentication (recommended for Data Center)
 export CONFLUENCE_DOMAIN='confluence.company.com'
 export CONFLUENCE_PATH='/wiki/'
-export CONFLUENCE_USER_NAME='username'
-export CONFLUENCE_API_KEY='your-api-key'
+export CONFLUENCE_API_KEY='your-personal-access-token'
 export CONFLUENCE_SPACE_KEY='SPACE'
 export CONFLUENCE_DEPLOYMENT_TYPE='datacenter'
 
 python -m md2conf path/to/file.md
 
+# Using Basic authentication (username + API key, if required by your instance)
+export CONFLUENCE_USER_NAME='username'
+
 # Or using command-line flag
 python -m md2conf --deployment-type datacenter \
   -d confluence.company.com \
   -p /wiki/ \
-  -u username \
-  -a your-api-key \
+  -a your-personal-access-token \
   -s SPACE \
   path/to/file.md
 ```
@@ -138,10 +141,16 @@ In order to get started, you will need
 
 ### Obtaining an API token
 
+**For Confluence Cloud:**
+
 1. Log in to <https://id.atlassian.com/manage/api-tokens>.
 2. Click *Create API token*.
 3. From the dialog that appears, enter a memorable and concise *Label* for your token and click *Create*.
 4. Click *Copy to clipboard*, then paste the token to your script, or elsewhere to save.
+
+**For Confluence Data Center or Server:**
+
+Create a Personal Access Token (PAT) from your Confluence user profile (typically *Profile* → *Settings* → *Personal Access Tokens*). Use this token as the `CONFLUENCE_API_KEY` value. Bearer token authentication is recommended — leave `CONFLUENCE_USER_NAME` unset, and md2conf will authenticate using `Authorization: Bearer <token>`.
 
 ### Setting up the environment
 
@@ -682,7 +691,8 @@ options:
   --deployment-type {cloud,datacenter,server}
                         Confluence deployment type. Use 'datacenter' or
                         'server' for on-premise installations, 'cloud' for
-                        Confluence Cloud (default: 'cloud').
+                        Confluence Cloud. If unspecified, defaults to Cloud
+                        (REST API v2) behavior.
   -l {debug,info,warning,error,critical}, --loglevel {debug,info,warning,error,critical}
                         Use this option to set the log verbosity.
   -r ROOT_PAGE          Root Confluence page to create new pages. If omitted,
@@ -730,9 +740,9 @@ options:
 
 ### Confluence REST API v1 vs. v2
 
-*md2conf* version 0.3.0 has switched to using [Confluence REST API v2](https://developer.atlassian.com/cloud/confluence/rest/v2/) for API calls such as retrieving current page content. Earlier versions used [Confluence REST API v1](https://developer.atlassian.com/cloud/confluence/rest/v1/) exclusively. Unfortunately, Atlassian has decommissioned Confluence REST API v1 for several endpoints in Confluence Cloud as of due date March 31, 2025, and we don't have access to an environment where we could test retired v1 endpoints.
+*md2conf* supports both [Confluence REST API v2](https://developer.atlassian.com/cloud/confluence/rest/v2/) (for Confluence Cloud) and [Confluence REST API v1](https://developer.atlassian.com/cloud/confluence/rest/v1/) (for Confluence Data Center and Server) with full feature parity. API routing is determined automatically by the configured deployment type.
 
-If you are restricted to an environment with Confluence REST API v1, we recommend *md2conf* [version 0.2.7](https://pypi.org/project/markdown-to-confluence/0.2.7/). Even though we don't actively support it, we are not aware of any major issues, making it a viable option in an on-premise environment with only Confluence REST API v1 support.
+Earlier versions of *md2conf* (before 0.3.0) used REST API v1 exclusively. Version 0.3.0 switched to REST API v2 for Confluence Cloud. Current versions support both APIs natively — use `--deployment-type datacenter` or `--deployment-type server` for on-premise installations, or leave the deployment type unset for Confluence Cloud.
 
 ### Using the Docker container
 
