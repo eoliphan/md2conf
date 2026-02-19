@@ -96,13 +96,13 @@ def expand_jira_macro(params: str) -> str:
         return f"<!-- macro:jira: {params} -->"  # Invalid - return unchanged
 
     key = positional[0]
-    show_summary = named.get("showSummary", "true")
+    show_summary = named.get("showSummary", "false")
 
     csf = '<ac:structured-macro ac:name="jira" ac:schema-version="1">'
     csf += f'<ac:parameter ac:name="key">{key}</ac:parameter>'
 
-    if show_summary.lower() != "true":
-        csf += f'<ac:parameter ac:name="showSummary">{show_summary}</ac:parameter>'
+    if show_summary.lower() == "true":
+        csf += '<ac:parameter ac:name="showSummary">true</ac:parameter>'
 
     csf += "</ac:structured-macro>"
 
