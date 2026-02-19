@@ -1223,6 +1223,84 @@ class ConfluenceSession:
             LOGGER.info("Updating page: %s", page_id)
             self._put(ConfluenceVersion.VERSION_2, path, request, None)
 
+    def move_page(self, page_id: str, new_parent_id: str) -> None:
+        """
+        Move a page to a new parent.
+
+        :param page_id: The Confluence page ID to move.
+        :param new_parent_id: The Confluence page ID of the new parent.
+        """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            self._move_page_v1(page_id, new_parent_id)
+        else:
+            self._move_page_v2(page_id, new_parent_id)
+
+    def _move_page_v1(self, page_id: str, new_parent_id: str) -> None:
+        """
+        Move a page to a new parent via the v1 API by updating ancestors.
+
+        v1 API endpoint: PUT /rest/api/content/{pageId}
+
+        :param page_id: The Confluence page ID to move.
+        :param new_parent_id: The Confluence page ID of the new parent.
+        """
+        page = self.get_page(page_id)
+        v1_request = {
+            "id": page_id,
+            "type": "page",
+            "title": page.title,
+            "version": {"number": page.version.number + 1},
+            "ancestors": [{"id": new_parent_id}],
+        }
+
+        path = f"/content/{page_id}"
+        url = self._build_url(ConfluenceVersion.VERSION_1, path)
+        LOGGER.info("Moving page %s to new parent %s", page_id, new_parent_id)
+
+        response = self.session.put(
+            url,
+            json=v1_request,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            verify=True,
+        )
+        if response.status_code >= 400:
+            LOGGER.error("Move page failed with status %s", response.status_code)
+            LOGGER.error("Response body: %s", response.text)
+        response.raise_for_status()
+
+    def _move_page_v2(self, page_id: str, new_parent_id: str) -> None:
+        """
+        Move a page to a new parent via the v2 API.
+
+        v2 API endpoint: PUT /api/v2/pages/{pageId}
+
+        :param page_id: The Confluence page ID to move.
+        :param new_parent_id: The Confluence page ID of the new parent.
+        """
+        page = self.get_page_properties(page_id)
+        request = {
+            "id": page_id,
+            "status": "current",
+            "title": page.title,
+            "parentId": new_parent_id,
+            "version": {"number": page.version.number + 1, "message": "Moved to new parent"},
+        }
+
+        path = f"/pages/{page_id}"
+        url = self._build_url(ConfluenceVersion.VERSION_2, path)
+        LOGGER.info("Moving page %s to new parent %s", page_id, new_parent_id)
+
+        response = self.session.put(
+            url,
+            json=request,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            verify=True,
+        )
+        if response.status_code >= 400:
+            LOGGER.error("Move page failed with status %s", response.status_code)
+            LOGGER.error("Response body: %s", response.text)
+        response.raise_for_status()
+
     def _create_page_v1(
         self,
         parent_id: str,

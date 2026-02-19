@@ -72,6 +72,23 @@ class SynchronizingProcessor(Processor):
         if node.page_id is not None:
             # verify if page exists
             page = self.api.get_page_properties(node.page_id)
+
+            # check if page needs re-parenting
+            if page.parentId is not None and page.parentId != parent_id.page_id:
+                LOGGER.info(
+                    "Moving page %s from parent %s to %s",
+                    node.page_id,
+                    page.parentId,
+                    parent_id.page_id,
+                )
+                self.api.move_page(node.page_id, parent_id.page_id)
+            else:
+                LOGGER.debug(
+                    "Page %s already under correct parent %s",
+                    node.page_id,
+                    parent_id.page_id,
+                )
+
             update = False
         else:
             if node.title is not None:
