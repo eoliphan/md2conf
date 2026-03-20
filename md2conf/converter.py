@@ -30,6 +30,7 @@ from .domain import ConfluenceDocumentOptions, ConfluencePageID
 from .emoticon import emoji_to_emoticon
 from .environment import PageError
 from .extra import override, path_relative_to
+from .kroki import KROKI_DIAGRAM_TYPES, KROKI_FILE_EXTENSIONS, KrokiServer
 from .latex import get_png_dimensions, remove_png_chunks, render_latex
 from .macros import expand_macros
 from .markdown import markdown_to_html
@@ -110,7 +111,7 @@ def preprocess_csf_comments_in_html(html: str) -> str:
     """
     # Pattern to match CSF comments: <!-- csf: <xml content> -->
     # Uses non-greedy match to handle multiple comments on same line
-    pattern = r'<!--\s*csf:\s*(.+?)\s*-->'
+    pattern = r"<!--\s*csf:\s*(.+?)\s*-->"
 
     def replace_comment(match: re.Match[str]) -> str:
         xml_content = match.group(1).strip()
@@ -399,6 +400,7 @@ class ConfluenceConverterOptions:
     webui_links: bool = False
     alignment: Literal["center", "left", "right"] = "center"
     use_panel: bool = False
+    render_kroki: bool = True
 
 
 @dataclass
@@ -463,6 +465,7 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
     embedded_files: dict[str, EmbeddedFileData]
     site_metadata: ConfluenceSiteMetadata
     page_metadata: ConfluencePageCollection
+    kroki_server: Optional[KrokiServer]
 
     def __init__(
         self,
@@ -471,6 +474,7 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         root_dir: Path,
         site_metadata: ConfluenceSiteMetadata,
         page_metadata: ConfluencePageCollection,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> None:
         super().__init__()
 
@@ -487,6 +491,7 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         self.embedded_files = {}
         self.site_metadata = site_metadata
         self.page_metadata = page_metadata
+        self.kroki_server = kroki_server
 
     def _transform_heading(self, heading: ElementType) -> None:
         """
@@ -716,6 +721,8 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
                 return self._transform_drawio(absolute_path, attrs)
             elif absolute_path.name.endswith(".mmd") or absolute_path.name.endswith(".mermaid"):
                 return self._transform_external_mermaid(absolute_path, attrs)
+            elif absolute_path.suffix in KROKI_FILE_EXTENSIONS:
+                return self._transform_kroki_file(absolute_path, attrs)
             else:
                 return self._transform_attached_image(absolute_path, attrs)
 
@@ -920,6 +927,8 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
 
         if language_id == "mermaid":
             return self._transform_fenced_mermaid(content)
+        elif language_name is not None and language_name in KROKI_DIAGRAM_TYPES:
+            return self._transform_fenced_kroki(language_name, content)
 
         return AC_ELEM(
             "structured-macro",
@@ -980,6 +989,53 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
             mermaid_filename = attachment_name(f"embedded_{mermaid_hash}.mmd")
             self.embedded_files[mermaid_filename] = EmbeddedFileData(mermaid_data)
             return self._create_mermaid_embed(mermaid_filename)
+
+    def _transform_fenced_kroki(self, diagram_type: str, content: str) -> ElementType:
+        "Emits Confluence Storage Format XHTML for a diagram rendered via Kroki."
+
+        kroki_type = KROKI_DIAGRAM_TYPES[diagram_type]
+
+        if self.options.render_kroki and self.kroki_server is not None:
+            image_data = self.kroki_server.render(kroki_type, content, self.options.diagram_output_format)
+            if image_data is not None:
+                image_hash = hashlib.md5(image_data).hexdigest()
+                image_filename = attachment_name(f"embedded_{image_hash}.{self.options.diagram_output_format}")
+                self.embedded_files[image_filename] = EmbeddedFileData(image_data)
+                return self._create_attached_image(image_filename, ImageAttributes.EMPTY_BLOCK)
+
+        # Fallback: emit as a plain code block
+        return AC_ELEM(
+            "structured-macro",
+            {
+                AC_ATTR("name"): "code",
+                AC_ATTR("schema-version"): "1",
+            },
+            AC_ELEM(
+                "parameter",
+                {AC_ATTR("name"): "language"},
+                diagram_type,
+            ),
+            AC_ELEM("plain-text-body", ET.CDATA(content)),
+        )
+
+    def _transform_kroki_file(self, absolute_path: Path, attrs: ImageAttributes) -> ElementType:
+        "Emits Confluence Storage Format XHTML for a diagram file rendered via Kroki."
+
+        diagram_type = KROKI_FILE_EXTENSIONS[absolute_path.suffix]
+        relative_path = path_relative_to(absolute_path, self.base_dir)
+
+        if self.options.render_kroki and self.kroki_server is not None:
+            with open(absolute_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            image_data = self.kroki_server.render(diagram_type, content, self.options.diagram_output_format)
+            if image_data is not None:
+                image_filename = attachment_name(relative_path.with_suffix(f".{self.options.diagram_output_format}"))
+                self.embedded_files[image_filename] = EmbeddedFileData(image_data, attrs.alt)
+                return self._create_attached_image(image_filename, attrs)
+
+        # Fallback: warn and emit a placeholder
+        LOGGER.warning("Cannot render %s file %s: Kroki unavailable", diagram_type, absolute_path.name)
+        return self._create_missing(Path(absolute_path.name), attrs)
 
     def _create_mermaid_embed(self, filename: str) -> ElementType:
         "A Mermaid diagram, linking to an attachment that captures the Mermaid source."
@@ -1791,6 +1847,7 @@ class ConfluenceDocument:
         root_dir: Path,
         site_metadata: ConfluenceSiteMetadata,
         page_metadata: ConfluencePageCollection,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> tuple[ConfluencePageID, "ConfluenceDocument"]:
         path = path.resolve(True)
 
@@ -1806,7 +1863,7 @@ class ConfluenceDocument:
             else:
                 raise PageError("missing Confluence page ID")
 
-        return page_id, ConfluenceDocument(path, document, options, root_dir, site_metadata, page_metadata)
+        return page_id, ConfluenceDocument(path, document, options, root_dir, site_metadata, page_metadata, kroki_server)
 
     def __init__(
         self,
@@ -1816,6 +1873,7 @@ class ConfluenceDocument:
         root_dir: Path,
         site_metadata: ConfluenceSiteMetadata,
         page_metadata: ConfluencePageCollection,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> None:
         "Converts a single Markdown document to Confluence Storage Format."
 
@@ -1870,7 +1928,7 @@ class ConfluenceDocument:
         )
         if document.alignment is not None:
             converter_options.alignment = document.alignment
-        converter = ConfluenceStorageFormatConverter(converter_options, path, root_dir, site_metadata, page_metadata)
+        converter = ConfluenceStorageFormatConverter(converter_options, path, root_dir, site_metadata, page_metadata, kroki_server=kroki_server)
 
         # execute HTML-to-Confluence converter
         try:

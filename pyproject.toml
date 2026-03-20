@@ -50,7 +50,9 @@ dev = [
     "types-PyYAML >= 6.0",
     "types-requests >= 2.32",
     "mypy >= 1.18",
-    "ruff >= 0.13"
+    "ruff >= 0.13",
+    "pytest >= 8.0",
+    "pytest-cov >= 6.0"
 ]
 formulas = [
     "matplotlib >= 3.9"
@@ -73,6 +75,9 @@ version = { attr = "md2conf.__version__" }
 
 [tool.setuptools.package-data]
 "md2conf" = ["entities.dtd", "puppeteer-config.json", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 160

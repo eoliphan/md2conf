@@ -1,16 +1,39 @@
-name: checks
+name: CI
+
 on:
   push:
+    branches: [master]
+  pull_request:
+    branches: [master]
 
 env:
   PIP_DISABLE_PIP_VERSION_CHECK: 1
 
 jobs:
-  required-checks:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: pip install ".[formulas,dev]"
+      - name: Run ruff linter
+        run: python -m ruff check --output-format=github
+      - name: Run ruff formatter check
+        run: python -m ruff format --check
+      - name: Run mypy
+        run: python -m mypy md2conf
+
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        # Matches what is in setup.cfg
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - name: Check out repository
@@ -20,14 +43,101 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: pip install ".[formulas,dev]"
-      - name: Run static type checker and verify formatting guidelines
-        run: bash check.sh
+        run: pip install ".[formulas,dev]" pytest pytest-cov
       - name: Set up Node.js
         uses: actions/setup-node@v4
-      - name: Install dependencies for converting Mermaid diagrams
+      - name: Install mermaid-cli
         run: npm install -g @mermaid-js/mermaid-cli
-      - name: Run unit tests
+      - name: Run unit tests with coverage
         env:
           TEST_MERMAID: 1
-        run: python -m unittest discover -s tests
+        run: >
+          python -m pytest tests/
+          --tb=short
+          --junitxml=test-results/junit.xml
+          --cov=md2conf
+          --cov-report=xml:test-results/coverage.xml
+          --cov-report=term-missing
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: test-results/
+      - name: Test Report
+        if: always() && github.event_name == 'pull_request'
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: test-results/junit.xml
+          check_name: Unit Tests (Python ${{ matrix.python-version }})
+          include_passed: false
+
+  coverage:
+    name: Coverage Report
+    needs: unit-tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: pip install ".[formulas,dev]" pytest pytest-cov
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+      - name: Install mermaid-cli
+        run: npm install -g @mermaid-js/mermaid-cli
+      - name: Run tests with coverage
+        env:
+          TEST_MERMAID: 1
+        run: >
+          python -m pytest tests/
+          --cov=md2conf
+          --cov-report=xml:coverage.xml
+          --cov-report=term-missing
+      - name: Coverage comment
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 80
+          MINIMUM_ORANGE: 60
+
+  integration-tests:
+    name: Integration Tests (Kroki/Docker)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: pip install ".[formulas,dev]" pytest
+      - name: Pull Kroki Docker image
+        run: docker pull yuzutech/kroki
+      - name: Run Kroki integration tests
+        run: >
+          python -m pytest integration_tests/test_kroki.py
+          -v
+          --tb=short
+          --junitxml=test-results/junit-integration.xml
+        timeout-minutes: 5
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-integration
+          path: test-results/
+      - name: Test Report
+        if: always() && github.event_name == 'pull_request'
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: test-results/junit-integration.xml
+          check_name: Integration Tests (Kroki/Docker)
+          include_passed: false

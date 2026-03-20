@@ -14,6 +14,7 @@ from typing import Optional
 from .converter import ConfluenceDocument
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
 from .extra import override
+from .kroki import KrokiServer
 from .metadata import ConfluencePageMetadata, ConfluenceSiteMetadata
 from .processor import Converter, DocumentNode, Processor, ProcessorFactory
 
@@ -32,6 +33,7 @@ class LocalProcessor(Processor):
         *,
         out_dir: Optional[Path],
         root_dir: Path,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> None:
         """
         Initializes a new processor instance.
@@ -40,9 +42,10 @@ class LocalProcessor(Processor):
         :param site: Data associated with a Confluence wiki site.
         :param out_dir: File system directory to write generated CSF documents to.
         :param root_dir: File system directory that acts as topmost root node.
+        :param kroki_server: Optional Kroki server for rendering diagrams.
         """
 
-        super().__init__(options, site, root_dir)
+        super().__init__(options, site, root_dir, kroki_server=kroki_server)
         self.out_dir = out_dir or root_dir
 
     @override
@@ -96,12 +99,13 @@ class LocalProcessorFactory(ProcessorFactory):
         options: ConfluenceDocumentOptions,
         site: ConfluenceSiteMetadata,
         out_dir: Optional[Path] = None,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> None:
-        super().__init__(options, site)
+        super().__init__(options, site, kroki_server=kroki_server)
         self.out_dir = out_dir
 
     def create(self, root_dir: Path) -> Processor:
-        return LocalProcessor(self.options, self.site, out_dir=self.out_dir, root_dir=root_dir)
+        return LocalProcessor(self.options, self.site, out_dir=self.out_dir, root_dir=root_dir, kroki_server=self.kroki_server)
 
 
 class LocalConverter(Converter):
@@ -114,5 +118,6 @@ class LocalConverter(Converter):
         options: ConfluenceDocumentOptions,
         site: ConfluenceSiteMetadata,
         out_dir: Optional[Path] = None,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> None:
-        super().__init__(LocalProcessorFactory(options, site, out_dir))
+        super().__init__(LocalProcessorFactory(options, site, out_dir, kroki_server=kroki_server))
