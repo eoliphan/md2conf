@@ -635,6 +635,55 @@ While the structure remains semantically correct, the visual separation is lost.
 2. **Use an admonition block:** Wrap the abstract in an info/note block
 3. **Use front-matter title:** Set `title` in front-matter to keep the heading in the body
 
+### Ignoring files
+
+Skip files and subdirectories in a directory with rules defined in `.mdignore`. Each rule should occupy a single line. Rules follow the syntax (and constraints) of [fnmatch](https://docs.python.org/3/library/fnmatch.html#fnmatch.fnmatch). Specifically, `?` matches any single character, and `*` matches zero or more characters. For example, use `up-*.md` to exclude Markdown files that start with `up-`. Lines that start with `#` are treated as comments.
+
+Files that don't have the extension `*.md` are skipped automatically. Hidden directories (whose name starts with `.`) are not recursed into. To skip an entire directory, add the name of the directory without a trailing `/`.
+
+Relative paths to items in a nested directory are not supported. You must put `.mdignore` in the same directory where the items to be skipped reside.
+
+If you add the `synchronized` attribute to JSON or YAML front-matter with the value `false`, the document content (including attachments) and metadata (e.g. tags) will not be synchronized with Confluence:
+
+```yaml
+---
+title: "Collaborating with other teams"
+page_id: "19830101"
+synchronized: false
+---
+
+This Markdown document is neither parsed, nor synchronized with Confluence.
+```
+
+This is useful if you have a page in a hierarchy that participates in parent-child relationships but whose content is edited directly in Confluence. Specifically, these documents can be referenced with relative links from other Markdown documents in the file system tree.
+
+### Excluding content sections
+
+When maintaining documentation in both Git repositories and Confluence, you may want certain content to appear only in the repository but not on Confluence pages. Use HTML comment markers to wrap and exclude specific sections from synchronization:
+
+```markdown
+# Project Documentation
+
+This content appears in both Git and Confluence.
+
+<!-- confluence-skip-start -->
+## Internal References
+- See [internal design doc](../internal/design.md)
+- Related to issue #123
+- Development notes for the team
+<!-- confluence-skip-end -->
+
+## Getting Started
+This section is published to Confluence.
+```
+
+Content between `<!-- confluence-skip-start -->` and `<!-- confluence-skip-end -->` markers is removed before conversion and will not appear on the Confluence page. This is useful for:
+
+- Repository-specific navigation and cross-references
+- GitLab/GitHub-specific metadata
+- Content relevant only for developers with repository access
+
+Multiple exclusion blocks can be used in the same document.
 ### Labels
 
 If a Markdown document has the front-matter attribute `tags`, *md2conf* assigns the specified tags to the Confluence page as labels.
