@@ -24,7 +24,7 @@ from strong_typing.core import JsonType
 from strong_typing.exception import JsonTypeError
 
 from . import drawio, mermaid
-from .kroki import KROKI_DIAGRAM_TYPES, KrokiServer
+from .kroki import KROKI_DIAGRAM_TYPES, KROKI_FILE_EXTENSIONS, KrokiServer
 from .collection import ConfluencePageCollection
 from .csf import AC_ATTR, AC_ELEM, HTML, RI_ATTR, RI_ELEM, ParseError, elements_from_strings, elements_to_string, normalize_inline
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
@@ -721,6 +721,8 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
                 return self._transform_drawio(absolute_path, attrs)
             elif absolute_path.name.endswith(".mmd") or absolute_path.name.endswith(".mermaid"):
                 return self._transform_external_mermaid(absolute_path, attrs)
+            elif absolute_path.suffix in KROKI_FILE_EXTENSIONS:
+                return self._transform_kroki_file(absolute_path, attrs)
             else:
                 return self._transform_attached_image(absolute_path, attrs)
 
@@ -1015,6 +1017,25 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
             ),
             AC_ELEM("plain-text-body", ET.CDATA(content)),
         )
+
+    def _transform_kroki_file(self, absolute_path: Path, attrs: ImageAttributes) -> ElementType:
+        "Emits Confluence Storage Format XHTML for a diagram file rendered via Kroki."
+
+        diagram_type = KROKI_FILE_EXTENSIONS[absolute_path.suffix]
+        relative_path = path_relative_to(absolute_path, self.base_dir)
+
+        if self.options.render_kroki and self.kroki_server is not None:
+            with open(absolute_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            image_data = self.kroki_server.render(diagram_type, content, self.options.diagram_output_format)
+            if image_data is not None:
+                image_filename = attachment_name(relative_path.with_suffix(f".{self.options.diagram_output_format}"))
+                self.embedded_files[image_filename] = EmbeddedFileData(image_data, attrs.alt)
+                return self._create_attached_image(image_filename, attrs)
+
+        # Fallback: warn and emit a placeholder
+        LOGGER.warning("Cannot render %s file %s: Kroki unavailable", diagram_type, absolute_path.name)
+        return self._create_missing(Path(absolute_path.name), attrs)
 
     def _create_mermaid_embed(self, filename: str) -> ElementType:
         "A Mermaid diagram, linking to an attachment that captures the Mermaid source."

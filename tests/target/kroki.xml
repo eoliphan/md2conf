@@ -1,0 +1,4 @@
+<ac:structured-macro ac:name="info" ac:schema-version="1"><ac:rich-text-body><p>This page has been generated with a tool.</p></ac:rich-text-body></ac:structured-macro><h1>Kroki Diagrams</h1><h2>PlantUML</h2><ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">plantuml</ac:parameter><ac:plain-text-body><![CDATA[@startuml
+Alice -> Bob: Hello
+Bob -> Alice: Hi
+@enduml]]></ac:plain-text-body></ac:structured-macro><h2>D2</h2><ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">d2</ac:parameter><ac:plain-text-body><![CDATA[x -> y: hello]]></ac:plain-text-body></ac:structured-macro><h2>GraphViz</h2><ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">graphviz</ac:parameter><ac:plain-text-body><![CDATA[digraph { a -> b }]]></ac:plain-text-body></ac:structured-macro>

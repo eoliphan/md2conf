@@ -218,5 +218,50 @@ class TestKrokiFencedCodeBlocks(unittest.TestCase):
         self.assertEqual(len(doc.embedded_files), 0)
 
 
+class TestKrokiFileReferences(unittest.TestCase):
+    def test_puml_file_dispatches_to_kroki(self) -> None:
+        """A .puml image reference should render via Kroki."""
+        from md2conf.converter import ConfluenceDocument
+        from md2conf.collection import ConfluencePageCollection
+        from md2conf.metadata import ConfluenceSiteMetadata
+
+        test_dir = Path(__file__).parent / "source"
+        test_file = test_dir / "kroki-files.md"
+        site = ConfluenceSiteMetadata(domain="test.atlassian.net", base_path="/wiki/", space_key="TEST")
+        pages = ConfluencePageCollection()
+        options = ConfluenceDocumentOptions(render_kroki=True)
+
+        mock_server = MagicMock(spec=KrokiServer)
+        mock_server.render.return_value = b"\x89PNG fake image data"
+        mock_server.available = True
+
+        page_id, doc = ConfluenceDocument.create(test_file, options, test_dir, site, pages, kroki_server=mock_server)
+
+        mock_server.render.assert_called_once()
+        call_args = mock_server.render.call_args
+        self.assertEqual(call_args.args[0], "plantuml")
+        self.assertGreater(len(doc.embedded_files), 0)
+
+    def test_puml_file_kroki_unavailable_fallback(self) -> None:
+        """A .puml file with Kroki unavailable should not crash."""
+        from md2conf.converter import ConfluenceDocument
+        from md2conf.collection import ConfluencePageCollection
+        from md2conf.metadata import ConfluenceSiteMetadata
+
+        test_dir = Path(__file__).parent / "source"
+        test_file = test_dir / "kroki-files.md"
+        site = ConfluenceSiteMetadata(domain="test.atlassian.net", base_path="/wiki/", space_key="TEST")
+        pages = ConfluencePageCollection()
+        options = ConfluenceDocumentOptions(render_kroki=True)
+
+        mock_server = MagicMock(spec=KrokiServer)
+        mock_server.render.return_value = None
+        mock_server.available = False
+
+        # Should not raise
+        page_id, doc = ConfluenceDocument.create(test_file, options, test_dir, site, pages, kroki_server=mock_server)
+        self.assertEqual(len(doc.embedded_files), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
