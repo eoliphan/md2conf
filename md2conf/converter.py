@@ -24,6 +24,7 @@ from strong_typing.core import JsonType
 from strong_typing.exception import JsonTypeError
 
 from . import drawio, mermaid
+from .kroki import KrokiServer
 from .collection import ConfluencePageCollection
 from .csf import AC_ATTR, AC_ELEM, HTML, RI_ATTR, RI_ELEM, ParseError, elements_from_strings, elements_to_string, normalize_inline
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
@@ -399,6 +400,7 @@ class ConfluenceConverterOptions:
     webui_links: bool = False
     alignment: Literal["center", "left", "right"] = "center"
     use_panel: bool = False
+    render_kroki: bool = True
 
 
 @dataclass
@@ -463,6 +465,7 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
     embedded_files: dict[str, EmbeddedFileData]
     site_metadata: ConfluenceSiteMetadata
     page_metadata: ConfluencePageCollection
+    kroki_server: Optional[KrokiServer]
 
     def __init__(
         self,
@@ -471,6 +474,7 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         root_dir: Path,
         site_metadata: ConfluenceSiteMetadata,
         page_metadata: ConfluencePageCollection,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> None:
         super().__init__()
 
@@ -487,6 +491,7 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         self.embedded_files = {}
         self.site_metadata = site_metadata
         self.page_metadata = page_metadata
+        self.kroki_server = kroki_server
 
     def _transform_heading(self, heading: ElementType) -> None:
         """
@@ -1791,6 +1796,7 @@ class ConfluenceDocument:
         root_dir: Path,
         site_metadata: ConfluenceSiteMetadata,
         page_metadata: ConfluencePageCollection,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> tuple[ConfluencePageID, "ConfluenceDocument"]:
         path = path.resolve(True)
 
@@ -1806,7 +1812,7 @@ class ConfluenceDocument:
             else:
                 raise PageError("missing Confluence page ID")
 
-        return page_id, ConfluenceDocument(path, document, options, root_dir, site_metadata, page_metadata)
+        return page_id, ConfluenceDocument(path, document, options, root_dir, site_metadata, page_metadata, kroki_server)
 
     def __init__(
         self,
@@ -1816,6 +1822,7 @@ class ConfluenceDocument:
         root_dir: Path,
         site_metadata: ConfluenceSiteMetadata,
         page_metadata: ConfluencePageCollection,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> None:
         "Converts a single Markdown document to Confluence Storage Format."
 
@@ -1870,7 +1877,7 @@ class ConfluenceDocument:
         )
         if document.alignment is not None:
             converter_options.alignment = document.alignment
-        converter = ConfluenceStorageFormatConverter(converter_options, path, root_dir, site_metadata, page_metadata)
+        converter = ConfluenceStorageFormatConverter(converter_options, path, root_dir, site_metadata, page_metadata, kroki_server=kroki_server)
 
         # execute HTML-to-Confluence converter
         try:

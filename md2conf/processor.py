@@ -17,6 +17,7 @@ from .collection import ConfluencePageCollection
 from .converter import ConfluenceDocument
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
 from .environment import ArgumentError
+from .kroki import KrokiServer
 from .matcher import DirectoryEntry, FileEntry, Matcher, MatcherOptions
 from .metadata import ConfluenceSiteMetadata
 from .scanner import Scanner
@@ -80,6 +81,7 @@ class Processor:
     options: ConfluenceDocumentOptions
     site: ConfluenceSiteMetadata
     root_dir: Path
+    kroki_server: Optional[KrokiServer]
 
     page_metadata: ConfluencePageCollection
 
@@ -88,10 +90,12 @@ class Processor:
         options: ConfluenceDocumentOptions,
         site: ConfluenceSiteMetadata,
         root_dir: Path,
+        kroki_server: Optional[KrokiServer] = None,
     ) -> None:
         self.options = options
         self.site = site
         self.root_dir = root_dir
+        self.kroki_server = kroki_server
         self.page_metadata = ConfluencePageCollection()
 
     def process_directory(self, local_dir: Path) -> None:
@@ -136,7 +140,7 @@ class Processor:
         Synchronizes a single Markdown document with its corresponding Confluence page.
         """
 
-        page_id, document = ConfluenceDocument.create(path, self.options, self.root_dir, self.site, self.page_metadata)
+        page_id, document = ConfluenceDocument.create(path, self.options, self.root_dir, self.site, self.page_metadata, kroki_server=self.kroki_server)
         self._update_page(page_id, document, path)
 
     @abstractmethod
@@ -249,10 +253,12 @@ class Processor:
 class ProcessorFactory:
     options: ConfluenceDocumentOptions
     site: ConfluenceSiteMetadata
+    kroki_server: Optional[KrokiServer]
 
-    def __init__(self, options: ConfluenceDocumentOptions, site: ConfluenceSiteMetadata) -> None:
+    def __init__(self, options: ConfluenceDocumentOptions, site: ConfluenceSiteMetadata, kroki_server: Optional[KrokiServer] = None) -> None:
         self.options = options
         self.site = site
+        self.kroki_server = kroki_server
 
     @abstractmethod
     def create(self, root_dir: Path) -> Processor: ...

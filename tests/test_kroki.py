@@ -7,6 +7,7 @@ Copyright 2022-2025, Levente Hunyadi
 """
 
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from md2conf.domain import ConfluenceDocumentOptions
@@ -121,6 +122,39 @@ class TestKrokiDomainOptions(unittest.TestCase):
     def test_render_kroki_false(self) -> None:
         opts = ConfluenceDocumentOptions(render_kroki=False)
         self.assertFalse(opts.render_kroki)
+
+
+class TestKrokiPipelineWiring(unittest.TestCase):
+    def test_kroki_server_accessible_from_converter(self) -> None:
+        """Verify the converter constructor accepts a kroki_server parameter."""
+        from md2conf.collection import ConfluencePageCollection
+        from md2conf.converter import ConfluenceConverterOptions, ConfluenceStorageFormatConverter
+        from md2conf.metadata import ConfluenceSiteMetadata
+
+        test_dir = Path(__file__).parent / "source"
+        test_file = test_dir / "basic.md"
+        site = ConfluenceSiteMetadata(domain="test.atlassian.net", base_path="/wiki/", space_key="TEST")
+        pages = ConfluencePageCollection()
+        options = ConfluenceConverterOptions()
+        server = KrokiServer()
+
+        converter = ConfluenceStorageFormatConverter(options, test_file, test_dir, site, pages, kroki_server=server)
+        self.assertIs(converter.kroki_server, server)
+
+    def test_converter_works_without_kroki_server(self) -> None:
+        """Verify the converter still works when kroki_server is None."""
+        from md2conf.collection import ConfluencePageCollection
+        from md2conf.converter import ConfluenceConverterOptions, ConfluenceStorageFormatConverter
+        from md2conf.metadata import ConfluenceSiteMetadata
+
+        test_dir = Path(__file__).parent / "source"
+        test_file = test_dir / "basic.md"
+        site = ConfluenceSiteMetadata(domain="test.atlassian.net", base_path="/wiki/", space_key="TEST")
+        pages = ConfluencePageCollection()
+        options = ConfluenceConverterOptions()
+
+        converter = ConfluenceStorageFormatConverter(options, test_file, test_dir, site, pages)
+        self.assertIsNone(converter.kroki_server)
 
 
 if __name__ == "__main__":

@@ -352,6 +352,7 @@ def main() -> None:
     )
 
     if args.local:
+        from .kroki import KrokiServer
         from .local import LocalConverter
 
         try:
@@ -367,11 +368,16 @@ def main() -> None:
             base_path=site_properties.base_path,
             space_key=site_properties.space_key,
         )
-        LocalConverter(options, site_metadata, out_dir).process(mdpath)
+        if options.render_kroki:
+            with KrokiServer(image=options.kroki_image) as kroki:
+                LocalConverter(options, site_metadata, out_dir, kroki_server=kroki).process(mdpath)
+        else:
+            LocalConverter(options, site_metadata, out_dir).process(mdpath)
     else:
         from requests import HTTPError, JSONDecodeError
 
         from .api import ConfluenceAPI
+        from .kroki import KrokiServer
         from .publisher import Publisher
 
         try:
@@ -388,11 +394,13 @@ def main() -> None:
         except ArgumentError as e:
             parser.error(str(e))
         try:
-            with ConfluenceAPI(properties) as api:
-                Publisher(
-                    api,
-                    options,
-                ).process(mdpath)
+            if options.render_kroki:
+                with KrokiServer(image=options.kroki_image) as kroki:
+                    with ConfluenceAPI(properties) as api:
+                        Publisher(api, options, kroki_server=kroki).process(mdpath)
+            else:
+                with ConfluenceAPI(properties) as api:
+                    Publisher(api, options).process(mdpath)
         except HTTPError as err:
             logging.error(err)
 

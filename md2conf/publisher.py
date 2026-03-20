@@ -16,6 +16,7 @@ from .csf import AC_ATTR, elements_from_string
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
 from .environment import PageError
 from .extra import override, path_relative_to
+from .kroki import KrokiServer
 from .metadata import ConfluencePageMetadata
 from .processor import Converter, DocumentNode, Processor, ProcessorFactory
 from .xml import is_xml_equal, unwrap_substitute
@@ -30,16 +31,17 @@ class SynchronizingProcessor(Processor):
 
     api: ConfluenceSession
 
-    def __init__(self, api: ConfluenceSession, options: ConfluenceDocumentOptions, root_dir: Path) -> None:
+    def __init__(self, api: ConfluenceSession, options: ConfluenceDocumentOptions, root_dir: Path, kroki_server: Optional[KrokiServer] = None) -> None:
         """
         Initializes a new processor instance.
 
         :param api: Holds information about an open session to a Confluence server.
         :param options: Options that control the generated page content.
         :param root_dir: File system directory that acts as topmost root node.
+        :param kroki_server: Optional Kroki server for rendering diagrams.
         """
 
-        super().__init__(options, api.site, root_dir)
+        super().__init__(options, api.site, root_dir, kroki_server=kroki_server)
         self.api = api
 
     @override
@@ -228,12 +230,12 @@ class SynchronizingProcessor(Processor):
 class SynchronizingProcessorFactory(ProcessorFactory):
     api: ConfluenceSession
 
-    def __init__(self, api: ConfluenceSession, options: ConfluenceDocumentOptions) -> None:
-        super().__init__(options, api.site)
+    def __init__(self, api: ConfluenceSession, options: ConfluenceDocumentOptions, kroki_server: Optional[KrokiServer] = None) -> None:
+        super().__init__(options, api.site, kroki_server=kroki_server)
         self.api = api
 
     def create(self, root_dir: Path) -> Processor:
-        return SynchronizingProcessor(self.api, self.options, root_dir)
+        return SynchronizingProcessor(self.api, self.options, root_dir, kroki_server=self.kroki_server)
 
 
 class Publisher(Converter):
@@ -243,5 +245,5 @@ class Publisher(Converter):
     This is the class instantiated by the command-line application.
     """
 
-    def __init__(self, api: ConfluenceSession, options: ConfluenceDocumentOptions) -> None:
-        super().__init__(SynchronizingProcessorFactory(api, options))
+    def __init__(self, api: ConfluenceSession, options: ConfluenceDocumentOptions, kroki_server: Optional[KrokiServer] = None) -> None:
+        super().__init__(SynchronizingProcessorFactory(api, options, kroki_server=kroki_server))
