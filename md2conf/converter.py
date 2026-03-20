@@ -1827,6 +1827,18 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
 
         # <table>...</table>
         elif child.tag == "table":
+            # check if there is a separator column to indicate a header column
+            for tr in child.iterdescendants("tr"):
+                if len(tr) < 2:
+                    break
+                column_text = tr[1].text
+                if column_text and not column_text.isspace():
+                    break
+            else:
+                for tr in child.iterdescendants("tr"):
+                    tr[0].tag = "th"  # make it a header cell
+                    tr.remove(tr[1])  # remove separator column
+
             for td in child.iterdescendants("td", "th"):
                 normalize_inline(td)
             child.set("data-layout", "default")

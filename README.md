@@ -376,6 +376,18 @@ Likewise, if you have a nested list, make sure that nested items are indented by
     2. Nested item 4
 ```
 
+#### Header column
+
+Confluence has a feature called *header column* (cells shown with a darker background), which doesn't have corresponding syntax in Markdown. If a Markdown table has a blank column following the first column, *md2conf* will make the first column a header column (and omit the separator column):
+
+```markdown
+| Number | | English | Hungarian |
+| ------ |-| ------- | --------- |
+| 1      | | one     | egy       |
+| 2      | | two     | kettő     |
+| 3      | | three   | három     |
+```
+
 ### Publishing images
 
 Local images referenced in a Markdown file are automatically published to Confluence as attachments to the page.
