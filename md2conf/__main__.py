@@ -53,6 +53,7 @@ class Arguments(argparse.Namespace):
     use_panel: bool
     render_kroki: bool
     kroki_image: str
+    skip_title_heading: bool
 
 
 class KwargsAppendAction(argparse.Action):
@@ -306,6 +307,18 @@ def get_parser() -> argparse.ArgumentParser:
         default="yuzutech/kroki",
         help="Docker image for the Kroki server (default: 'yuzutech/kroki').",
     )
+    parser.add_argument(
+        "--skip-title-heading",
+        action="store_true",
+        default=True,
+        help="Skip the first heading from document body when it is used as the page title (default). Does not apply if title comes from front-matter.",
+    )
+    parser.add_argument(
+        "--no-skip-title-heading",
+        dest="skip_title_heading",
+        action="store_false",
+        help="Keep the first heading in document body even when used as page title.",
+    )
     return parser
 
 
@@ -355,6 +368,7 @@ def main() -> None:
         use_panel=args.use_panel,
         render_kroki=args.render_kroki,
         kroki_image=args.kroki_image,
+        skip_title_heading=args.skip_title_heading,
     )
 
     if args.local:
