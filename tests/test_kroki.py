@@ -7,8 +7,9 @@ Copyright 2022-2025, Levente Hunyadi
 """
 
 import unittest
+from unittest.mock import MagicMock, patch
 
-from md2conf.kroki import KROKI_DIAGRAM_TYPES, KROKI_FILE_EXTENSIONS
+from md2conf.kroki import KROKI_DIAGRAM_TYPES, KROKI_FILE_EXTENSIONS, KrokiServer
 
 
 class TestKrokiRegistries(unittest.TestCase):
@@ -37,6 +38,70 @@ class TestKrokiRegistries(unittest.TestCase):
 
     def test_dot_is_alias_for_graphviz(self) -> None:
         self.assertEqual(KROKI_DIAGRAM_TYPES["dot"], "graphviz")
+
+
+class TestKrokiServerInit(unittest.TestCase):
+    def test_default_values(self) -> None:
+        server = KrokiServer()
+        self.assertEqual(server.image, "yuzutech/kroki")
+        self.assertFalse(server._started)
+        self.assertTrue(server.available)
+
+    def test_custom_image(self) -> None:
+        server = KrokiServer(image="custom/kroki:latest")
+        self.assertEqual(server.image, "custom/kroki:latest")
+
+
+class TestKrokiServerDockerDetection(unittest.TestCase):
+    @patch("shutil.which", return_value=None)
+    def test_no_docker_sets_unavailable(self, mock_which: MagicMock) -> None:
+        server = KrokiServer()
+        server._ensure_running()
+        self.assertFalse(server.available)
+
+    @patch("shutil.which", return_value="/usr/bin/docker")
+    @patch("subprocess.run")
+    def test_docker_available_starts_container(self, mock_run: MagicMock, mock_which: MagicMock) -> None:
+        mock_run.return_value = MagicMock(returncode=0, stdout="container_id_123\n")
+
+        server = KrokiServer()
+        with patch.object(server, "_wait_for_health"):
+            server._ensure_running()
+
+        self.assertTrue(server._started)
+        self.assertTrue(server.available)
+        self.assertEqual(server._container_id, "container_id_123")
+
+
+class TestKrokiServerContextManager(unittest.TestCase):
+    def test_context_manager_no_start(self) -> None:
+        """Container should not start just from entering context."""
+        with KrokiServer() as server:
+            self.assertFalse(server._started)
+
+    def test_context_manager_cleanup_when_not_started(self) -> None:
+        """Exit should not fail when container was never started."""
+        with KrokiServer() as _server:
+            pass  # No render calls, so no container started
+
+
+class TestKrokiServerLazyStart(unittest.TestCase):
+    @patch("shutil.which", return_value=None)
+    def test_render_triggers_ensure_running(self, mock_which: MagicMock) -> None:
+        server = KrokiServer()
+        result = server.render("plantuml", "@startuml\nA->B\n@enduml", "png")
+        self.assertIsNone(result)  # Docker not available, returns None
+        self.assertFalse(server.available)
+
+    @patch("shutil.which", return_value=None)
+    def test_warn_once_per_type(self, mock_which: MagicMock) -> None:
+        """Warning should only be logged once per diagram type."""
+        server = KrokiServer()
+        server.render("plantuml", "source1", "png")
+        server.render("plantuml", "source2", "png")
+        self.assertEqual(len(server._warned_types), 1)
+        server.render("d2", "source3", "svg")
+        self.assertEqual(len(server._warned_types), 2)
 
 
 if __name__ == "__main__":
