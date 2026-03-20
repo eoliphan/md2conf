@@ -24,13 +24,13 @@ from strong_typing.core import JsonType
 from strong_typing.exception import JsonTypeError
 
 from . import drawio, mermaid
-from .kroki import KROKI_DIAGRAM_TYPES, KROKI_FILE_EXTENSIONS, KrokiServer
 from .collection import ConfluencePageCollection
 from .csf import AC_ATTR, AC_ELEM, HTML, RI_ATTR, RI_ELEM, ParseError, elements_from_strings, elements_to_string, normalize_inline
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
 from .emoticon import emoji_to_emoticon
 from .environment import PageError
 from .extra import override, path_relative_to
+from .kroki import KROKI_DIAGRAM_TYPES, KROKI_FILE_EXTENSIONS, KrokiServer
 from .latex import get_png_dimensions, remove_png_chunks, render_latex
 from .macros import expand_macros
 from .markdown import markdown_to_html
@@ -111,7 +111,7 @@ def preprocess_csf_comments_in_html(html: str) -> str:
     """
     # Pattern to match CSF comments: <!-- csf: <xml content> -->
     # Uses non-greedy match to handle multiple comments on same line
-    pattern = r'<!--\s*csf:\s*(.+?)\s*-->'
+    pattern = r"<!--\s*csf:\s*(.+?)\s*-->"
 
     def replace_comment(match: re.Match[str]) -> str:
         xml_content = match.group(1).strip()
