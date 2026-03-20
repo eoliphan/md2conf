@@ -35,6 +35,8 @@ class ConfluenceDocumentOptions:
     :param webui_links: When true, convert relative URLs to Confluence Web UI links.
     :param alignment: Alignment for block-level images and formulas.
     :param use_panel: Whether to transform admonitions and alerts into a Confluence custom panel.
+    :param render_kroki: Whether to render Kroki-supported diagrams using a Docker-managed Kroki server.
+    :param kroki_image: Docker image to use for the Kroki server.
     """
 
     ignore_invalid_url: bool = False
@@ -50,3 +52,5 @@ class ConfluenceDocumentOptions:
     webui_links: bool = False
     alignment: Literal["center", "left", "right"] = "center"
     use_panel: bool = False
+    render_kroki: bool = True
+    kroki_image: str = "yuzutech/kroki"

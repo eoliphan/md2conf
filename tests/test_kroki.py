@@ -9,6 +9,7 @@ Copyright 2022-2025, Levente Hunyadi
 import unittest
 from unittest.mock import MagicMock, patch
 
+from md2conf.domain import ConfluenceDocumentOptions
 from md2conf.kroki import KROKI_DIAGRAM_TYPES, KROKI_FILE_EXTENSIONS, KrokiServer
 
 
@@ -102,6 +103,24 @@ class TestKrokiServerLazyStart(unittest.TestCase):
         self.assertEqual(len(server._warned_types), 1)
         server.render("d2", "source3", "svg")
         self.assertEqual(len(server._warned_types), 2)
+
+
+class TestKrokiDomainOptions(unittest.TestCase):
+    def test_default_render_kroki_true(self) -> None:
+        opts = ConfluenceDocumentOptions()
+        self.assertTrue(opts.render_kroki)
+
+    def test_default_kroki_image(self) -> None:
+        opts = ConfluenceDocumentOptions()
+        self.assertEqual(opts.kroki_image, "yuzutech/kroki")
+
+    def test_custom_kroki_image(self) -> None:
+        opts = ConfluenceDocumentOptions(kroki_image="custom/kroki:v1")
+        self.assertEqual(opts.kroki_image, "custom/kroki:v1")
+
+    def test_render_kroki_false(self) -> None:
+        opts = ConfluenceDocumentOptions(render_kroki=False)
+        self.assertFalse(opts.render_kroki)
 
 
 if __name__ == "__main__":

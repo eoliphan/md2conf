@@ -51,6 +51,8 @@ class Arguments(argparse.Namespace):
     webui_links: bool
     alignment: Literal["center", "left", "right"]
     use_panel: bool
+    render_kroki: bool
+    kroki_image: str
 
 
 class KwargsAppendAction(argparse.Action):
@@ -279,6 +281,25 @@ def get_parser() -> argparse.ArgumentParser:
         default=False,
         help="Transform admonitions and alerts into a Confluence custom panel.",
     )
+    parser.add_argument(
+        "--render-kroki",
+        dest="render_kroki",
+        action="store_true",
+        default=True,
+        help="Render Kroki-supported diagrams using a Docker-managed Kroki server (default: enabled).",
+    )
+    parser.add_argument(
+        "--no-render-kroki",
+        dest="render_kroki",
+        action="store_false",
+        help="Disable Kroki diagram rendering; unsupported diagram types will be emitted as code blocks.",
+    )
+    parser.add_argument(
+        "--kroki-image",
+        dest="kroki_image",
+        default="yuzutech/kroki",
+        help="Docker image for the Kroki server (default: 'yuzutech/kroki').",
+    )
     return parser
 
 
@@ -326,6 +347,8 @@ def main() -> None:
         webui_links=args.webui_links,
         alignment=args.alignment,
         use_panel=args.use_panel,
+        render_kroki=args.render_kroki,
+        kroki_image=args.kroki_image,
     )
 
     if args.local:
