@@ -263,5 +263,38 @@ class TestKrokiFileReferences(unittest.TestCase):
         self.assertEqual(len(doc.embedded_files), 0)
 
 
+class TestMermaidFallback(unittest.TestCase):
+    def test_mermaid_not_dispatched_to_kroki(self) -> None:
+        """Mermaid should use existing handler, not Kroki, even when Kroki is available."""
+        from md2conf.converter import ConfluenceDocument
+        from md2conf.collection import ConfluencePageCollection
+        from md2conf.metadata import ConfluenceSiteMetadata
+
+        test_dir = Path(__file__).parent / "source"
+
+        # Create a minimal markdown file with only a mermaid block
+        mermaid_md = test_dir / "kroki-mermaid-test.md"
+        mermaid_md.write_text(
+            "<!-- confluence-page-id: 0 -->\n\n```mermaid\ngraph TD\n  A-->B\n```\n",
+            encoding="utf-8",
+        )
+
+        try:
+            site = ConfluenceSiteMetadata(domain="test.atlassian.net", base_path="/wiki/", space_key="TEST")
+            pages = ConfluencePageCollection()
+            # render_mermaid=False so it goes through the non-render path (no mmdc needed)
+            options = ConfluenceDocumentOptions(render_kroki=True, render_mermaid=False)
+
+            mock_server = MagicMock(spec=KrokiServer)
+            mock_server.available = True
+
+            page_id, doc = ConfluenceDocument.create(mermaid_md, options, test_dir, site, pages, kroki_server=mock_server)
+
+            # Kroki render should NOT have been called for mermaid
+            mock_server.render.assert_not_called()
+        finally:
+            mermaid_md.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     unittest.main()
