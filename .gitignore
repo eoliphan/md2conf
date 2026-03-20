@@ -6,5 +6,6 @@ __pycache__
 /.venv
 /build
 /dist
-/docs
+/docs/*
+!/docs/plans/
 /*.egg-info
