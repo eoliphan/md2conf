@@ -157,5 +157,66 @@ class TestKrokiPipelineWiring(unittest.TestCase):
         self.assertIsNone(converter.kroki_server)
 
 
+class TestKrokiFencedCodeBlocks(unittest.TestCase):
+    def test_plantuml_fenced_block_dispatches_to_kroki(self) -> None:
+        """A ```plantuml fenced block should render via Kroki when available."""
+        from md2conf.collection import ConfluencePageCollection
+        from md2conf.converter import ConfluenceDocument
+        from md2conf.metadata import ConfluenceSiteMetadata
+
+        test_dir = Path(__file__).parent / "source"
+        test_file = test_dir / "kroki.md"
+        site = ConfluenceSiteMetadata(domain="test.atlassian.net", base_path="/wiki/", space_key="TEST")
+        pages = ConfluencePageCollection()
+        options = ConfluenceDocumentOptions(render_kroki=True)
+
+        mock_server = MagicMock(spec=KrokiServer)
+        mock_server.render.return_value = b"\x89PNG fake image data"
+        mock_server.available = True
+
+        page_id, doc = ConfluenceDocument.create(test_file, options, test_dir, site, pages, kroki_server=mock_server)
+
+        render_calls = mock_server.render.call_args_list
+        diagram_types = [call.args[0] for call in render_calls]
+        self.assertIn("plantuml", diagram_types)
+        self.assertIn("d2", diagram_types)
+        self.assertIn("graphviz", diagram_types)
+        self.assertGreater(len(doc.embedded_files), 0)
+
+    def test_kroki_unavailable_falls_back_to_code_block(self) -> None:
+        """When Kroki render returns None, emit as code blocks."""
+        from md2conf.collection import ConfluencePageCollection
+        from md2conf.converter import ConfluenceDocument
+        from md2conf.metadata import ConfluenceSiteMetadata
+
+        test_dir = Path(__file__).parent / "source"
+        test_file = test_dir / "kroki.md"
+        site = ConfluenceSiteMetadata(domain="test.atlassian.net", base_path="/wiki/", space_key="TEST")
+        pages = ConfluencePageCollection()
+        options = ConfluenceDocumentOptions(render_kroki=True)
+
+        mock_server = MagicMock(spec=KrokiServer)
+        mock_server.render.return_value = None
+        mock_server.available = False
+
+        page_id, doc = ConfluenceDocument.create(test_file, options, test_dir, site, pages, kroki_server=mock_server)
+        self.assertEqual(len(doc.embedded_files), 0)
+
+    def test_render_kroki_false_emits_code_blocks(self) -> None:
+        """When render_kroki is False, Kroki types should be plain code blocks."""
+        from md2conf.collection import ConfluencePageCollection
+        from md2conf.converter import ConfluenceDocument
+        from md2conf.metadata import ConfluenceSiteMetadata
+
+        test_dir = Path(__file__).parent / "source"
+        test_file = test_dir / "kroki.md"
+        site = ConfluenceSiteMetadata(domain="test.atlassian.net", base_path="/wiki/", space_key="TEST")
+        pages = ConfluencePageCollection()
+        options = ConfluenceDocumentOptions(render_kroki=False)
+
+        page_id, doc = ConfluenceDocument.create(test_file, options, test_dir, site, pages, kroki_server=None)
+        self.assertEqual(len(doc.embedded_files), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

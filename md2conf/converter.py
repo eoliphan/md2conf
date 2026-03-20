@@ -24,7 +24,7 @@ from strong_typing.core import JsonType
 from strong_typing.exception import JsonTypeError
 
 from . import drawio, mermaid
-from .kroki import KrokiServer
+from .kroki import KROKI_DIAGRAM_TYPES, KrokiServer
 from .collection import ConfluencePageCollection
 from .csf import AC_ATTR, AC_ELEM, HTML, RI_ATTR, RI_ELEM, ParseError, elements_from_strings, elements_to_string, normalize_inline
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
@@ -925,6 +925,8 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
 
         if language_id == "mermaid":
             return self._transform_fenced_mermaid(content)
+        elif language_name is not None and language_name in KROKI_DIAGRAM_TYPES:
+            return self._transform_fenced_kroki(language_name, content)
 
         return AC_ELEM(
             "structured-macro",
@@ -985,6 +987,34 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
             mermaid_filename = attachment_name(f"embedded_{mermaid_hash}.mmd")
             self.embedded_files[mermaid_filename] = EmbeddedFileData(mermaid_data)
             return self._create_mermaid_embed(mermaid_filename)
+
+    def _transform_fenced_kroki(self, diagram_type: str, content: str) -> ElementType:
+        "Emits Confluence Storage Format XHTML for a diagram rendered via Kroki."
+
+        kroki_type = KROKI_DIAGRAM_TYPES[diagram_type]
+
+        if self.options.render_kroki and self.kroki_server is not None:
+            image_data = self.kroki_server.render(kroki_type, content, self.options.diagram_output_format)
+            if image_data is not None:
+                image_hash = hashlib.md5(image_data).hexdigest()
+                image_filename = attachment_name(f"embedded_{image_hash}.{self.options.diagram_output_format}")
+                self.embedded_files[image_filename] = EmbeddedFileData(image_data)
+                return self._create_attached_image(image_filename, ImageAttributes.EMPTY_BLOCK)
+
+        # Fallback: emit as a plain code block
+        return AC_ELEM(
+            "structured-macro",
+            {
+                AC_ATTR("name"): "code",
+                AC_ATTR("schema-version"): "1",
+            },
+            AC_ELEM(
+                "parameter",
+                {AC_ATTR("name"): "language"},
+                diagram_type,
+            ),
+            AC_ELEM("plain-text-body", ET.CDATA(content)),
+        )
 
     def _create_mermaid_embed(self, filename: str) -> ElementType:
         "A Mermaid diagram, linking to an attachment that captures the Mermaid source."
