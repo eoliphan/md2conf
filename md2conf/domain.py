@@ -40,6 +40,8 @@ class ConfluenceDocumentOptions:
     :param skip_title_heading: Whether to remove the first heading from document body when used as page title.
     :param max_image_width: Maximum display width for images in pixels. Images wider than this
         will be scaled down for display while preserving the original size for full-size viewing.
+    :param pass_through_languages: When true, pass through unsupported code block language names as-is to
+        Confluence. When false, unsupported languages are replaced with 'none'.
     """
 
     ignore_invalid_url: bool = False
@@ -59,3 +61,4 @@ class ConfluenceDocumentOptions:
     kroki_image: str = "yuzutech/kroki"
     skip_title_heading: bool = False
     max_image_width: Optional[int] = None
+    pass_through_languages: bool = False

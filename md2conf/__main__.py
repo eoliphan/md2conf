@@ -56,6 +56,7 @@ class Arguments(argparse.Namespace):
     kroki_image: str
     skip_title_heading: bool
     max_image_width: Optional[int]
+    pass_through_languages: bool
 
 
 class KwargsAppendAction(argparse.Action):
@@ -342,6 +343,13 @@ def get_parser() -> argparse.ArgumentParser:
         help="Maximum display width for images in pixels. Images wider than this will be scaled down "
         "for display while preserving the original size for full-size viewing.",
     )
+    parser.add_argument(
+        "--pass-through-languages",
+        dest="pass_through_languages",
+        action="store_true",
+        default=False,
+        help="Pass through unsupported code block languages to Confluence instead of replacing with 'none'.",
+    )
     return parser
 
 
@@ -394,6 +402,7 @@ def main() -> None:
         kroki_image=args.kroki_image,
         skip_title_heading=args.skip_title_heading,
         max_image_width=args.max_image_width,
+        pass_through_languages=args.pass_through_languages,
     )
 
     if args.local:

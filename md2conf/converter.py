@@ -495,6 +495,8 @@ class ConfluenceConverterOptions:
     :param use_panel: Whether to transform admonitions and alerts into a Confluence custom panel.
     :param skip_title_heading: Whether to remove the first heading from document body when used as page title.
     :param max_image_width: Maximum display width for images in pixels.
+    :param pass_through_languages: When true, pass through unsupported code block language names as-is to
+        Confluence. When false, unsupported languages are replaced with 'none'.
     """
 
     ignore_invalid_url: bool = False
@@ -510,6 +512,7 @@ class ConfluenceConverterOptions:
     render_kroki: bool = True
     skip_title_heading: bool = False
     max_image_width: Optional[int] = None
+    pass_through_languages: bool = False
 
 
 @dataclass
@@ -1063,6 +1066,8 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         # translate name to standard name for (programming) language
         if language_name is not None:
             language_id = _LANGUAGES.get(language_name)
+            if language_id is None and self.options.pass_through_languages:
+                language_id = language_name
         else:
             language_id = None
 

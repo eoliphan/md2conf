@@ -383,6 +383,70 @@ class TestConversion(TypedTestCase):
 
         self.assertEqual(actual, expected)
 
+    def test_unsupported_language_default(self) -> None:
+        """Test that unsupported code block languages become 'none' by default."""
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "code.md",
+            ConfluenceDocumentOptions(),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        actual = doc.xhtml()
+        # The language-neutral code block should use 'none'
+        self.assertIn('<ac:parameter ac:name="language">none</ac:parameter>', actual)
+        # Known languages should still be mapped correctly
+        self.assertIn('<ac:parameter ac:name="language">py</ac:parameter>', actual)
+
+    def test_pass_through_unsupported_language(self) -> None:
+        """Test that unsupported languages are passed through when pass_through_languages is True."""
+        source_dir = self.source_dir
+        # Create a temporary markdown file with an unsupported language
+        md_content = "<!-- confluence-page-id: 00000000000 -->\n\n```zig\nconst x: i32 = 42;\n```\n"
+        md_path = source_dir / "_test_pass_through_lang.md"
+        try:
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(md_content)
+
+            _, doc = ConfluenceDocument.create(
+                md_path,
+                ConfluenceDocumentOptions(pass_through_languages=True, generated_by=None),
+                source_dir,
+                self.site_metadata,
+                self.page_metadata,
+            )
+            actual = doc.xhtml()
+            # 'zig' is not in _LANGUAGES, so with pass_through_languages=True it should be passed through
+            self.assertIn('<ac:parameter ac:name="language">zig</ac:parameter>', actual)
+
+            # Verify default behavior still maps 'none' for unsupported languages
+            _, doc2 = ConfluenceDocument.create(
+                md_path,
+                ConfluenceDocumentOptions(pass_through_languages=False, generated_by=None),
+                source_dir,
+                self.site_metadata,
+                self.page_metadata,
+            )
+            actual2 = doc2.xhtml()
+            self.assertIn('<ac:parameter ac:name="language">none</ac:parameter>', actual2)
+        finally:
+            md_path.unlink(missing_ok=True)
+
+    def test_pass_through_supported_language_unchanged(self) -> None:
+        """Test that supported languages are still mapped correctly with pass_through_languages enabled."""
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "code.md",
+            ConfluenceDocumentOptions(pass_through_languages=True),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        actual = doc.xhtml()
+        # Python should still be mapped to 'py'
+        self.assertIn('<ac:parameter ac:name="language">py</ac:parameter>', actual)
+        # Java should still be 'java'
+        self.assertIn('<ac:parameter ac:name="language">java</ac:parameter>', actual)
+
 
 if __name__ == "__main__":
     unittest.main()
