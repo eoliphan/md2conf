@@ -11,13 +11,15 @@ import enum
 import io
 import logging
 import mimetypes
+import random
 import ssl
 import sys
+import time
 import typing
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Optional, TypeVar, overload
+from typing import Any, Callable, Optional, TypeVar, overload
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import requests
@@ -69,6 +71,42 @@ def build_url(base_url: str, query: Optional[dict[str, str]] = None) -> str:
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _retry_request(
+    func: Callable[..., requests.Response],
+    *args: Any,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    **kwargs: Any,
+) -> requests.Response:
+    """Execute an HTTP request with retry and exponential backoff with jitter.
+
+    Retries on HTTP 429 (rate limit) and 5xx (server error) status codes.
+    Uses exponential backoff with random jitter to avoid thundering herd.
+
+    :param func: The request function to call (e.g. session.get, session.post).
+    :param max_retries: Maximum number of retry attempts (default 3).
+    :param base_delay: Base delay in seconds for exponential backoff (default 1.0).
+    :returns: The HTTP response.
+    """
+    response: requests.Response = requests.Response()
+    for attempt in range(max_retries + 1):
+        response = func(*args, **kwargs)
+        if response.status_code == 429 or response.status_code >= 500:
+            if attempt < max_retries:
+                delay = base_delay * (2**attempt) + random.uniform(0, 1)
+                LOGGER.warning(
+                    "Request failed with status %d, retrying in %.1fs (attempt %d/%d)",
+                    response.status_code,
+                    delay,
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(delay)
+                continue
+        return response
+    return response
 
 
 @overload
@@ -501,7 +539,7 @@ class ConfluenceSession:
                 # For Cloud (v2 API), try scoped API URL first, then fall back to classic
                 try:
                     # obtain cloud ID to build URL for access with scoped token
-                    response = self.session.get(f"https://{self.site.domain}/_edge/tenant_info", headers={"Accept": "application/json"}, verify=True)
+                    response = _retry_request(self.session.get,f"https://{self.site.domain}/_edge/tenant_info", headers={"Accept": "application/json"}, verify=True)
                     if response.text:
                         LOGGER.debug("Received HTTP payload:\n%s", response.text)
                     response.raise_for_status()
@@ -511,7 +549,7 @@ class ConfluenceSession:
                     LOGGER.info("Probing scoped Confluence REST API URL")
                     self.api_url = f"https://api.atlassian.com/ex/confluence/{cloud_id}/"
                     url = self._build_url(ConfluenceVersion.VERSION_2, "/spaces", {"limit": "1"})
-                    response = self.session.get(url, headers={"Accept": "application/json"}, verify=True)
+                    response = _retry_request(self.session.get,url, headers={"Accept": "application/json"}, verify=True)
                     if response.text:
                         LOGGER.debug("Received HTTP payload:\n%s", response.text)
                     response.raise_for_status()
@@ -578,7 +616,7 @@ class ConfluenceSession:
         "Executes an HTTP request via Confluence API."
 
         url = self._build_url(version, path, query)
-        response = self.session.get(url, headers={"Accept": "application/json"}, verify=True)
+        response = _retry_request(self.session.get, url, headers={"Accept": "application/json"}, verify=True)
         if response.text:
             LOGGER.debug("Received HTTP payload:\n%s", response.text)
         response.raise_for_status()
@@ -627,7 +665,7 @@ class ConfluenceSession:
         items: list[JsonType] = []
         url = self._build_url(ConfluenceVersion.VERSION_2, path, query)
         while True:
-            response = self.session.get(url, headers={"Accept": "application/json"}, verify=True)
+            response = _retry_request(self.session.get, url, headers={"Accept": "application/json"}, verify=True)
             response.raise_for_status()
 
             payload = typing.cast(dict[str, JsonType], response.json())
@@ -663,7 +701,7 @@ class ConfluenceSession:
         "Creates a new object via Confluence REST API."
 
         url, headers, data = self._build_request(version, path, body, response_type)
-        response = self.session.post(url, data=data, headers=headers, verify=True)
+        response = _retry_request(self.session.post, url, data=data, headers=headers, verify=True)
         response.raise_for_status()
         return response_cast(response_type, response)
 
@@ -677,7 +715,7 @@ class ConfluenceSession:
         "Updates an existing object via Confluence REST API."
 
         url, headers, data = self._build_request(version, path, body, response_type)
-        response = self.session.put(url, data=data, headers=headers, verify=True)
+        response = _retry_request(self.session.put, url, data=data, headers=headers, verify=True)
         response.raise_for_status()
         return response_cast(response_type, response)
 
@@ -923,7 +961,7 @@ class ConfluenceSession:
                     ),
                 }
                 LOGGER.info("Uploading attachment: %s", attachment_name)
-                response = self.session.post(
+                response = _retry_request(self.session.post,
                     url,
                     files=file_to_upload,
                     headers={
@@ -951,7 +989,7 @@ class ConfluenceSession:
                     {"Expires": "0"},
                 ),
             }
-            response = self.session.post(
+            response = _retry_request(self.session.post,
                 url,
                 files=file_to_upload,
                 headers={
@@ -1181,7 +1219,7 @@ class ConfluenceSession:
         LOGGER.info(f"Updating page at URL: {url}")
         LOGGER.info(f"Request body: {v1_request}")
 
-        response = self.session.put(
+        response = _retry_request(self.session.put,
             url,
             json=v1_request,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
@@ -1257,7 +1295,7 @@ class ConfluenceSession:
         url = self._build_url(ConfluenceVersion.VERSION_1, path)
         LOGGER.info("Moving page %s to new parent %s", page_id, new_parent_id)
 
-        response = self.session.put(
+        response = _retry_request(self.session.put,
             url,
             json=v1_request,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
@@ -1290,7 +1328,7 @@ class ConfluenceSession:
         url = self._build_url(ConfluenceVersion.VERSION_2, path)
         LOGGER.info("Moving page %s to new parent %s", page_id, new_parent_id)
 
-        response = self.session.put(
+        response = _retry_request(self.session.put,
             url,
             json=request,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
@@ -1343,7 +1381,7 @@ class ConfluenceSession:
         LOGGER.info(f"Request body: {v1_request}")
 
         # Note: Some title/content combinations may trigger WAF rules (e.g. "API Test Page")
-        response = self.session.post(
+        response = _retry_request(self.session.post,
             url,
             json=v1_request,
             headers={"Content-Type": "application/json", "Accept": "application/json"},
@@ -1387,7 +1425,7 @@ class ConfluenceSession:
             )
 
             url = self._build_url(ConfluenceVersion.VERSION_2, path)
-            response = self.session.post(
+            response = _retry_request(self.session.post,
                 url,
                 data=json_dump_string(object_to_json(request)).encode("utf-8"),
                 headers={
@@ -1415,13 +1453,13 @@ class ConfluenceSession:
             query = {"status": "trashed"}
             url = self._build_url(ConfluenceVersion.VERSION_1, path, query)
             LOGGER.info("Permanently deleting page: %s", page_id)
-            response = self.session.delete(url, verify=True)
+            response = _retry_request(self.session.delete, url, verify=True)
             response.raise_for_status()
         else:
             # Move to trash
             url = self._build_url(ConfluenceVersion.VERSION_1, path)
             LOGGER.info("Moving page to trash: %s", page_id)
-            response = self.session.delete(url, verify=True)
+            response = _retry_request(self.session.delete, url, verify=True)
             response.raise_for_status()
 
     def delete_page(self, page_id: str, *, purge: bool = False) -> None:
@@ -1439,7 +1477,7 @@ class ConfluenceSession:
             # move to trash
             url = self._build_url(ConfluenceVersion.VERSION_2, path)
             LOGGER.info("Moving page to trash: %s", page_id)
-            response = self.session.delete(url, verify=True)
+            response = _retry_request(self.session.delete, url, verify=True)
             response.raise_for_status()
 
             if purge:
@@ -1447,7 +1485,7 @@ class ConfluenceSession:
                 query = {"purge": "true"}
                 url = self._build_url(ConfluenceVersion.VERSION_2, path, query)
                 LOGGER.info("Permanently deleting page: %s", page_id)
-                response = self.session.delete(url, verify=True)
+                response = _retry_request(self.session.delete, url, verify=True)
                 response.raise_for_status()
 
     def _page_exists_v1(
@@ -1484,7 +1522,7 @@ class ConfluenceSession:
             query["spaceKey"] = space_key
 
         url = self._build_url(ConfluenceVersion.VERSION_1, path)
-        response = self.session.get(
+        response = _retry_request(self.session.get,
             url,
             params=query,
             headers={
@@ -1530,7 +1568,7 @@ class ConfluenceSession:
             LOGGER.info("Checking if page exists with title: %s", title)
 
             url = self._build_url(ConfluenceVersion.VERSION_2, path)
-            response = self.session.get(
+            response = _retry_request(self.session.get,
                 url,
                 params=query,
                 headers={
@@ -1608,7 +1646,7 @@ class ConfluenceSession:
             query = {"name": label.name}
 
             url = self._build_url(ConfluenceVersion.VERSION_1, path, query)
-            response = self.session.delete(url, verify=True)
+            response = _retry_request(self.session.delete, url, verify=True)
             if response.text:
                 LOGGER.debug("Received HTTP payload:\n%s", response.text)
             response.raise_for_status()
@@ -1685,7 +1723,7 @@ class ConfluenceSession:
         # Now delete using the key
         path = f"/content/{page_id}/property/{property_key}"
         url = self._build_url(ConfluenceVersion.VERSION_1, path)
-        response = self.session.delete(url, verify=True)
+        response = _retry_request(self.session.delete, url, verify=True)
         response.raise_for_status()
 
     def get_content_properties_for_page(self, page_id: str) -> list[ConfluenceIdentifiedContentProperty]:
@@ -1731,7 +1769,7 @@ class ConfluenceSession:
         else:
             path = f"/pages/{page_id}/properties/{property_id}"
             url = self._build_url(ConfluenceVersion.VERSION_2, path)
-            response = self.session.delete(url, verify=True)
+            response = _retry_request(self.session.delete, url, verify=True)
             response.raise_for_status()
 
     def _update_content_property_for_page_v1(
