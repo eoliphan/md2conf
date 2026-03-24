@@ -263,6 +263,190 @@ class TestConversion(TypedTestCase):
         )
         self.assertEqual(len(document.embedded_files), 4)
 
+    def test_max_image_width(self) -> None:
+        "Test that max_image_width constrains display width while preserving original dimensions."
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "images.md",
+            ConfluenceDocumentOptions(prefer_raster=False, max_image_width=100),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        xhtml = doc.xhtml()
+
+        # The vector.svg has natural dimensions of 200x200
+        # With max_image_width=100, display width should be constrained to 100
+        # but original-width should still be 200
+        self.assertIn('ac:original-width="200"', xhtml)
+        self.assertIn('ac:original-height="200"', xhtml)
+        self.assertIn('ac:width="100"', xhtml)
+
+    def test_max_image_width_no_constraint(self) -> None:
+        "Test that images smaller than max_image_width are not constrained."
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "images.md",
+            ConfluenceDocumentOptions(prefer_raster=False, max_image_width=500),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        xhtml = doc.xhtml()
+
+        # The vector.svg has natural dimensions of 200x200
+        # With max_image_width=500, no constraint should be applied
+        # so ac:width should equal the natural width
+        self.assertIn('ac:original-width="200"', xhtml)
+        self.assertIn('ac:width="200"', xhtml)
+
+    def test_skip_title_heading_enabled(self) -> None:
+        """Test that the first heading is removed when skip_title_heading is enabled."""
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "skip_title_heading.md",
+            ConfluenceDocumentOptions(skip_title_heading=True),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        self.assertEqual(doc.title, "Document Title")
+        actual = standardize(doc.xhtml())
+
+        with open(self.target_dir / "skip_title_heading_removed.xml", "r", encoding="utf-8") as f:
+            expected = substitute(self.target_dir, f.read())
+
+        self.assertEqual(actual, expected)
+
+    def test_skip_title_heading_disabled(self) -> None:
+        """Test that the first heading is preserved when skip_title_heading is disabled."""
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "skip_title_heading.md",
+            ConfluenceDocumentOptions(skip_title_heading=False),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        self.assertEqual(doc.title, "Document Title")
+        actual = standardize(doc.xhtml())
+
+        with open(self.target_dir / "skip_title_heading_preserved.xml", "r", encoding="utf-8") as f:
+            expected = substitute(self.target_dir, f.read())
+
+        self.assertEqual(actual, expected)
+
+    def test_skip_title_heading_frontmatter(self) -> None:
+        """Test that heading is preserved when title comes from front-matter, even with flag enabled."""
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "skip_title_heading_frontmatter.md",
+            ConfluenceDocumentOptions(skip_title_heading=True),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        self.assertEqual(doc.title, "Title from Front-matter")
+        actual = standardize(doc.xhtml())
+
+        with open(self.target_dir / "skip_title_heading_frontmatter.xml", "r", encoding="utf-8") as f:
+            expected = substitute(self.target_dir, f.read())
+
+        self.assertEqual(actual, expected)
+
+    def test_skip_title_heading_multiple(self) -> None:
+        """Test that headings are preserved when there are multiple top-level headings."""
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "skip_title_heading_multiple.md",
+            ConfluenceDocumentOptions(skip_title_heading=True),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        self.assertIsNone(doc.title)  # No unique title can be extracted
+        actual = standardize(doc.xhtml())
+
+        with open(self.target_dir / "skip_title_heading_multiple.xml", "r", encoding="utf-8") as f:
+            expected = substitute(self.target_dir, f.read())
+
+        self.assertEqual(actual, expected)
+
+    def test_skip_title_heading_abstract(self) -> None:
+        """Test that abstract text before heading flows into content when heading is removed."""
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "skip_title_heading_abstract.md",
+            ConfluenceDocumentOptions(skip_title_heading=True),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        self.assertEqual(doc.title, "Document Title")
+        actual = standardize(doc.xhtml())
+
+        with open(self.target_dir / "skip_title_heading_abstract_removed.xml", "r", encoding="utf-8") as f:
+            expected = substitute(self.target_dir, f.read())
+
+        self.assertEqual(actual, expected)
+
+    def test_unsupported_language_default(self) -> None:
+        """Test that unsupported code block languages become 'none' by default."""
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "code.md",
+            ConfluenceDocumentOptions(),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        actual = doc.xhtml()
+        # The language-neutral code block should use 'none'
+        self.assertIn('<ac:parameter ac:name="language">none</ac:parameter>', actual)
+        # Known languages should still be mapped correctly
+        self.assertIn('<ac:parameter ac:name="language">py</ac:parameter>', actual)
+
+    def test_pass_through_unsupported_language(self) -> None:
+        """Test that unsupported languages are passed through when pass_through_languages is True."""
+        source_dir = self.source_dir
+        # Create a temporary markdown file with an unsupported language
+        md_content = "<!-- confluence-page-id: 00000000000 -->\n\n```zig\nconst x: i32 = 42;\n```\n"
+        md_path = source_dir / "_test_pass_through_lang.md"
+        try:
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(md_content)
+
+            _, doc = ConfluenceDocument.create(
+                md_path,
+                ConfluenceDocumentOptions(pass_through_languages=True, generated_by=None),
+                source_dir,
+                self.site_metadata,
+                self.page_metadata,
+            )
+            actual = doc.xhtml()
+            # 'zig' is not in _LANGUAGES, so with pass_through_languages=True it should be passed through
+            self.assertIn('<ac:parameter ac:name="language">zig</ac:parameter>', actual)
+
+            # Verify default behavior still maps 'none' for unsupported languages
+            _, doc2 = ConfluenceDocument.create(
+                md_path,
+                ConfluenceDocumentOptions(pass_through_languages=False, generated_by=None),
+                source_dir,
+                self.site_metadata,
+                self.page_metadata,
+            )
+            actual2 = doc2.xhtml()
+            self.assertIn('<ac:parameter ac:name="language">none</ac:parameter>', actual2)
+        finally:
+            md_path.unlink(missing_ok=True)
+
+    def test_pass_through_supported_language_unchanged(self) -> None:
+        """Test that supported languages are still mapped correctly with pass_through_languages enabled."""
+        _, doc = ConfluenceDocument.create(
+            self.source_dir / "code.md",
+            ConfluenceDocumentOptions(pass_through_languages=True),
+            self.source_dir,
+            self.site_metadata,
+            self.page_metadata,
+        )
+        actual = doc.xhtml()
+        # Python should still be mapped to 'py'
+        self.assertIn('<ac:parameter ac:name="language">py</ac:parameter>', actual)
+        # Java should still be 'java'
+        self.assertIn('<ac:parameter ac:name="language">java</ac:parameter>', actual)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -376,6 +376,18 @@ Likewise, if you have a nested list, make sure that nested items are indented by
     2. Nested item 4
 ```
 
+#### Header column
+
+Confluence has a feature called *header column* (cells shown with a darker background), which doesn't have corresponding syntax in Markdown. If a Markdown table has a blank column following the first column, *md2conf* will make the first column a header column (and omit the separator column):
+
+```markdown
+| Number | | English | Hungarian |
+| ------ |-| ------- | --------- |
+| 1      | | one     | egy       |
+| 2      | | two     | kettő     |
+| 3      | | three   | három     |
+```
+
 ### Publishing images
 
 Local images referenced in a Markdown file are automatically published to Confluence as attachments to the page.
@@ -571,6 +583,107 @@ This is useful if you have a page in a hierarchy that participates in parent-chi
 
 If the `title` attribute (in the front-matter) or the topmost unique heading (in the document body) changes, the Confluence page title is updated. A warning is raised if the new title conflicts with the title of another page, and thus cannot be updated.
 
+#### Avoiding duplicate titles
+
+By default, when *md2conf* extracts a page title from the first unique heading in a Markdown document, the heading remains in the document body. This means the title appears twice on the Confluence page: once as the page title at the top, and once as the first heading in the content.
+
+To avoid this duplication, use the `--skip-title-heading` option. When enabled, *md2conf* removes the first heading from the document body if it was used as the page title. This option only takes effect when:
+
+1. The title was extracted from the document's first unique heading (not from front-matter), AND
+2. There is exactly one top-level heading in the document.
+
+If the title comes from the `title` attribute in front-matter, the heading is preserved in the document body regardless of this setting, as the heading and title are considered separate.
+
+**Example without `--skip-title-heading` (default):**
+
+Markdown:
+```markdown
+# Installation Guide
+
+Follow these steps...
+```
+
+Confluence displays:
+- Page title: "Installation Guide"
+- Content: Starts with heading "Installation Guide", followed by "Follow these steps..."
+
+**Example with `--skip-title-heading`:**
+
+Same Markdown source, but Confluence displays:
+- Page title: "Installation Guide"
+- Content: Starts directly with "Follow these steps..." (heading removed)
+
+**Edge case: Abstract or introductory text before the title:**
+
+When a document has content before the first heading (like an abstract), removing the heading eliminates the visual separator between the introductory text and the main content:
+
+```markdown
+This is an abstract paragraph providing context.
+
+# Document Title
+
+This is the main document content.
+```
+
+With `--skip-title-heading`, the output becomes:
+- Page title: "Document Title"
+- Content: "This is an abstract paragraph..." flows directly into "This is the main document content..." (no heading separator)
+
+While the structure remains semantically correct, the visual separation is lost. If you need to maintain separation, consider these workarounds:
+
+1. **Use a horizontal rule:** Add `---` after the abstract to create visual separation
+2. **Use an admonition block:** Wrap the abstract in an info/note block
+3. **Use front-matter title:** Set `title` in front-matter to keep the heading in the body
+
+### Ignoring files
+
+Skip files and subdirectories in a directory with rules defined in `.mdignore`. Each rule should occupy a single line. Rules follow the syntax (and constraints) of [fnmatch](https://docs.python.org/3/library/fnmatch.html#fnmatch.fnmatch). Specifically, `?` matches any single character, and `*` matches zero or more characters. For example, use `up-*.md` to exclude Markdown files that start with `up-`. Lines that start with `#` are treated as comments.
+
+Files that don't have the extension `*.md` are skipped automatically. Hidden directories (whose name starts with `.`) are not recursed into. To skip an entire directory, add the name of the directory without a trailing `/`.
+
+Relative paths to items in a nested directory are not supported. You must put `.mdignore` in the same directory where the items to be skipped reside.
+
+If you add the `synchronized` attribute to JSON or YAML front-matter with the value `false`, the document content (including attachments) and metadata (e.g. tags) will not be synchronized with Confluence:
+
+```yaml
+---
+title: "Collaborating with other teams"
+page_id: "19830101"
+synchronized: false
+---
+
+This Markdown document is neither parsed, nor synchronized with Confluence.
+```
+
+This is useful if you have a page in a hierarchy that participates in parent-child relationships but whose content is edited directly in Confluence. Specifically, these documents can be referenced with relative links from other Markdown documents in the file system tree.
+
+### Excluding content sections
+
+When maintaining documentation in both Git repositories and Confluence, you may want certain content to appear only in the repository but not on Confluence pages. Use HTML comment markers to wrap and exclude specific sections from synchronization:
+
+```markdown
+# Project Documentation
+
+This content appears in both Git and Confluence.
+
+<!-- confluence-skip-start -->
+## Internal References
+- See [internal design doc](../internal/design.md)
+- Related to issue #123
+- Development notes for the team
+<!-- confluence-skip-end -->
+
+## Getting Started
+This section is published to Confluence.
+```
+
+Content between `<!-- confluence-skip-start -->` and `<!-- confluence-skip-end -->` markers is removed before conversion and will not appear on the Confluence page. This is useful for:
+
+- Repository-specific navigation and cross-references
+- GitLab/GitHub-specific metadata
+- Content relevant only for developers with repository access
+
+Multiple exclusion blocks can be used in the same document.
 ### Labels
 
 If a Markdown document has the front-matter attribute `tags`, *md2conf* assigns the specified tags to the Confluence page as labels.
@@ -723,6 +836,12 @@ options:
   --heading-anchors     Place an anchor at each section heading with GitHub-
                         style same-page identifiers.
   --no-heading-anchors  Don't place an anchor at each section heading.
+  --skip-title-heading  Skip the first heading from document body when it is
+                        used as the page title (default). Does not apply if
+                        title comes from front-matter.
+  --no-skip-title-heading
+                        Keep the first heading in document body even when used
+                        as page title.
   --ignore-invalid-url  Emit a warning but otherwise ignore relative URLs that
                         point to ill-specified locations.
   --local               Write XHTML-based Confluence Storage Format files
@@ -736,6 +855,10 @@ options:
                         (default: 'center').
   --use-panel           Transform admonitions and alerts into a Confluence
                         custom panel.
+  --max-image-width MAX_IMAGE_WIDTH
+                       Maximum display width for images in pixels. Images
+                       wider than this will be scaled down for display while
+                       preserving the original size for full-size viewing.
 ```
 
 ### Confluence REST API v1 vs. v2

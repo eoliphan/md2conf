@@ -37,6 +37,7 @@ from .markdown import markdown_to_html
 from .mermaid import MermaidConfigProperties
 from .metadata import ConfluenceSiteMetadata
 from .scanner import MermaidScanner, ScannedDocument, Scanner
+from .svg import fix_svg_dimensions, get_svg_dimensions, get_svg_dimensions_from_bytes
 from .toc import TableOfContentsBuilder
 from .uri import is_absolute_url, to_uuid_urn
 from .xml import element_to_text
@@ -147,16 +148,20 @@ _LANGUAGES = {
     "dart": "dart",
     "delphi": "delphi",
     "diff": "diff",
+    "dockerfile": "dockerfile",
     "elixir": "elixir",
     "erl": "erl",
     "erlang": "erl",
     "fortran": "fortran",
     "foxpro": "foxpro",
+    "gherkin": "gherkin",
     "go": "go",
     "graphql": "graphql",
     "groovy": "groovy",
+    "handlebars": "handlebars",
     "haskell": "haskell",
     "haxe": "haxe",
+    "hcl": "hcl",
     "html": "html",
     "java": "java",
     "javafx": "javafx",
@@ -180,6 +185,7 @@ _LANGUAGES = {
     "php": "php",
     "powershell": "powershell",
     "prolog": "prolog",
+    "protobuf": "protobuf",
     "puppet": "puppet",
     "py": "py",
     "python": "py",
@@ -200,6 +206,7 @@ _LANGUAGES = {
     "swift": "swift",
     "tcl": "tcl",
     "tex": "tex",
+    "toml": "toml",
     "tsx": "tsx",
     "typescript": "typescript",
     "vala": "vala",
@@ -272,6 +279,100 @@ def is_placeholder_for(node: ElementType, name: str) -> bool:
     return True
 
 
+def transform_skip_comments_in_html(html: str) -> str:
+    """
+    Transforms HTML comments marking skip sections into custom elements.
+
+    Converts:
+        <!-- confluence-skip-start --> ... <!-- confluence-skip-end -->
+    Into:
+        <div class="confluence-skip"> ... </div>  (for block-level content)
+        <span class="confluence-skip"> ... </span>  (for inline content)
+
+    This must run BEFORE the HTML is parsed, as the XML parser strips comments in csf.py (remove_comments=True)
+    Malformed markers (unmatched start/end) are logged as errors.
+
+    :param html: HTML string with skip comment markers
+    :returns: HTML string with comments replaced by custom elements
+    """
+
+    # Pattern to match skip section markers with surrounding context
+    # Captures newlines/whitespace before and after to determine if block-level
+    start_pattern = r"<!--\s*confluence-skip-start\s*-->"
+    end_pattern = r"<!--\s*confluence-skip-end\s*-->"
+
+    # Count markers for validation
+    start_count = len(re.findall(start_pattern, html))
+    end_count = len(re.findall(end_pattern, html))
+
+    if start_count != end_count:
+        raise DocumentError(f"unmatched confluence-skip markers: found {start_count} start marker(s) and {end_count} end marker(s)")
+
+    if start_count < 1:
+        return html
+
+    # Process each start-end pair to determine if block or inline
+    # Pattern to match entire skip section with context
+    section_pattern = r"(\n\s*)?<!--\s*confluence-skip-start\s*-->(.*?)<!--\s*confluence-skip-end\s*-->(\s*\n)?"
+
+    def replace_section(match: re.Match[str]) -> str:
+        before_newline = match.group(1)  # Newline before start marker
+        content = match.group(2)  # Content between markers
+        after_newline = match.group(3)  # Newline after end marker
+
+        # Determine if this is block-level:
+        # - Has newline before 'start' marker, or
+        # - Has newline after 'end' marker, or
+        is_block = bool(before_newline) or bool(after_newline) or "\n" in content
+
+        if is_block:
+            # Use 'div' for block-level exclusions
+            result = f'<div class="confluence-skip">{content}</div>'
+            # Preserve surrounding newlines for block context
+            if before_newline:
+                result = before_newline + result
+            if after_newline:
+                result = result + after_newline
+            return result
+        else:
+            # Use 'span' for inline exclusions
+            return f'<span class="confluence-skip">{content}</span>'
+
+    html = re.sub(section_pattern, replace_section, html, flags=re.DOTALL)
+
+    return html
+
+
+def cleanup_empty_elements(root: ElementType) -> None:
+    """
+    Post-processing pass to remove empty elements (like empty spans/divs from confluence-skip).
+    This must be called AFTER visit() completes to avoid index issues during iteration.
+    Removes elements that have no text, no children, and specific tags (span, div).
+    Preserves tail text by moving it to the previous sibling or parent.
+    """
+
+    # Process recursively depth-first so we handle nested structures correctly
+    for child in list(root):
+        cleanup_empty_elements(child)
+
+    # Remove empty span/div elements that have no text and no children
+    for element in list(root):
+        if element.tag in ("span", "div") and not element.text and len(element) == 0:
+            tail = element.tail
+            if tail:
+                # Find the index of this element in parent
+                index = list(root).index(element)
+                if index > 0:
+                    # Append tail to previous sibling's tail
+                    prev_sibling = root[index - 1]
+                    prev_sibling.tail = (prev_sibling.tail or "") + tail
+                else:
+                    # This is the first child, append to parent's text
+                    root.text = (root.text or "") + tail
+
+            root.remove(element)
+
+
 @enum.unique
 class FormattingContext(enum.Enum):
     "Identifies the formatting context for the element."
@@ -301,6 +402,7 @@ class ImageAttributes:
     :param title: Title text (a.k.a. image tooltip).
     :param caption: Caption text (shown below figure).
     :param alignment: Alignment for block-level images.
+    :param display_width: Constrained display width in pixels (if different from natural width).
     """
 
     context: FormattingContext
@@ -310,6 +412,7 @@ class ImageAttributes:
     title: Optional[str]
     caption: Optional[str]
     alignment: ImageAlignment = ImageAlignment.CENTER
+    display_width: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.caption is None and self.context is FormattingContext.BLOCK:
@@ -334,7 +437,9 @@ class ImageAttributes:
                 attributes[AC_ATTR("original-height")] = str(self.height)
             if self.width is not None:
                 attributes[AC_ATTR("custom-width")] = "true"
-                attributes[AC_ATTR("width")] = str(self.width)
+                # Use display_width if set, otherwise use natural width
+                effective_width = self.display_width or self.width
+                attributes[AC_ATTR("width")] = str(effective_width)
 
         elif self.context is FormattingContext.INLINE:
             if self.width is not None:
@@ -388,6 +493,10 @@ class ConfluenceConverterOptions:
     :param webui_links: When true, convert relative URLs to Confluence Web UI links.
     :param alignment: Alignment for block-level images and formulas.
     :param use_panel: Whether to transform admonitions and alerts into a Confluence custom panel.
+    :param skip_title_heading: Whether to remove the first heading from document body when used as page title.
+    :param max_image_width: Maximum display width for images in pixels.
+    :param pass_through_languages: When true, pass through unsupported code block language names as-is to
+        Confluence. When false, unsupported languages are replaced with 'none'.
     """
 
     ignore_invalid_url: bool = False
@@ -401,6 +510,9 @@ class ConfluenceConverterOptions:
     alignment: Literal["center", "left", "right"] = "center"
     use_panel: bool = False
     render_kroki: bool = True
+    skip_title_heading: bool = False
+    max_image_width: Optional[int] = None
+    pass_through_languages: bool = False
 
 
 @dataclass
@@ -492,6 +604,19 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         self.site_metadata = site_metadata
         self.page_metadata = page_metadata
         self.kroki_server = kroki_server
+
+    def _calculate_display_width(self, natural_width: Optional[int]) -> Optional[int]:
+        """
+        Calculate the display width for an image, applying max_image_width constraint if set.
+
+        :param natural_width: The natural width of the image in pixels.
+        :returns: The constrained display width, or None if no constraint is needed.
+        """
+        if natural_width is None or self.options.max_image_width is None:
+            return None
+        if natural_width <= self.options.max_image_width:
+            return None  # No constraint needed, image is already within limits
+        return self.options.max_image_width
 
     def _transform_heading(self, heading: ElementType) -> None:
         """
@@ -703,7 +828,14 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         pixel_width = int(width) if width is not None and width.isdecimal() else None
         pixel_height = int(height) if height is not None and height.isdecimal() else None
         attrs = ImageAttributes(
-            context, width=pixel_width, height=pixel_height, alt=alt, title=title, caption=None, alignment=ImageAlignment(self.options.alignment)
+            context,
+            width=pixel_width,
+            height=pixel_height,
+            alt=alt,
+            title=title,
+            caption=None,
+            alignment=ImageAlignment(self.options.alignment),
+            display_width=self._calculate_display_width(pixel_width),
         )
 
         if is_absolute_url(src):
@@ -774,6 +906,21 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
             png_file = absolute_path.with_suffix(".png")
             if png_file.exists():
                 absolute_path = png_file
+
+        # infer SVG dimensions if not already specified
+        if absolute_path.suffix == ".svg" and attrs.width is None and attrs.height is None:
+            svg_width, svg_height = get_svg_dimensions(absolute_path)
+            if svg_width is not None:
+                attrs = ImageAttributes(
+                    context=attrs.context,
+                    width=svg_width,
+                    height=svg_height,
+                    alt=attrs.alt,
+                    title=attrs.title,
+                    caption=attrs.caption,
+                    alignment=attrs.alignment,
+                    display_width=self._calculate_display_width(svg_width),
+                )
 
         self.images.append(ImageData(absolute_path, attrs.alt))
         image_name = attachment_name(path_relative_to(absolute_path, self.base_dir))
@@ -919,6 +1066,8 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         # translate name to standard name for (programming) language
         if language_name is not None:
             language_id = _LANGUAGES.get(language_name)
+            if language_id is None and self.options.pass_through_languages:
+                language_id = language_name
         else:
             language_id = None
 
@@ -965,8 +1114,29 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
                 content = f.read()
             config = self._extract_mermaid_config(content)
             image_data = mermaid.render_diagram(content, self.options.diagram_output_format, config=config)
+
+            # Extract dimensions and fix SVG if that's the output format
+            if self.options.diagram_output_format == "svg":
+                # Fix SVG to have explicit width/height instead of percentages
+                image_data = fix_svg_dimensions(image_data)
+
+                if attrs.width is None and attrs.height is None:
+                    svg_width, svg_height = get_svg_dimensions_from_bytes(image_data)
+                    if svg_width is not None or svg_height is not None:
+                        attrs = ImageAttributes(
+                            context=attrs.context,
+                            width=svg_width,
+                            height=svg_height,
+                            alt=attrs.alt,
+                            title=attrs.title,
+                            caption=attrs.caption,
+                            alignment=attrs.alignment,
+                            display_width=self._calculate_display_width(svg_width),
+                        )
+
             image_filename = attachment_name(relative_path.with_suffix(f".{self.options.diagram_output_format}"))
             self.embedded_files[image_filename] = EmbeddedFileData(image_data, attrs.alt)
+
             return self._create_attached_image(image_filename, attrs)
         else:
             self.images.append(ImageData(absolute_path, attrs.alt))
@@ -979,10 +1149,31 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         if self.options.render_mermaid:
             config = self._extract_mermaid_config(content)
             image_data = mermaid.render_diagram(content, self.options.diagram_output_format, config=config)
+
+            # Extract dimensions and fix SVG if that's the output format
+            attrs = ImageAttributes.EMPTY_BLOCK
+            if self.options.diagram_output_format == "svg":
+                # Fix SVG to have explicit width/height instead of percentages
+                image_data = fix_svg_dimensions(image_data)
+
+                svg_width, svg_height = get_svg_dimensions_from_bytes(image_data)
+                if svg_width is not None or svg_height is not None:
+                    attrs = ImageAttributes(
+                        context=FormattingContext.BLOCK,
+                        width=svg_width,
+                        height=svg_height,
+                        alt=None,
+                        title=None,
+                        caption=None,
+                        alignment=ImageAlignment(self.options.alignment),
+                        display_width=self._calculate_display_width(svg_width),
+                    )
+
             image_hash = hashlib.md5(image_data).hexdigest()
             image_filename = attachment_name(f"embedded_{image_hash}.{self.options.diagram_output_format}")
             self.embedded_files[image_filename] = EmbeddedFileData(image_data)
-            return self._create_attached_image(image_filename, ImageAttributes.EMPTY_BLOCK)
+
+            return self._create_attached_image(image_filename, attrs)
         else:
             mermaid_data = content.encode("utf-8")
             mermaid_hash = hashlib.md5(mermaid_data).hexdigest()
@@ -1387,7 +1578,16 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         if self.options.diagram_output_format == "png":
             width, height = get_png_dimensions(data=image_data)
             image_data = remove_png_chunks(["pHYs"], source_data=image_data)
-            attrs = ImageAttributes(context, width=width, height=height, alt=content, title=None, caption="", alignment=ImageAlignment(self.options.alignment))
+            attrs = ImageAttributes(
+                context,
+                width=width,
+                height=height,
+                alt=content,
+                title=None,
+                caption="",
+                alignment=ImageAlignment(self.options.alignment),
+                display_width=self._calculate_display_width(width),
+            )
         else:
             attrs = ImageAttributes.empty(context)
 
@@ -1472,8 +1672,16 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         """
         Transforms a footnote reference.
 
+        When a footnote is referenced multiple times, Python-Markdown generates
+        different `id` attributes for each reference:
+        - First reference: `fnref:NAME`
+        - Second reference: `fnref2:NAME`
+        - Third reference: `fnref3:NAME`
+        - etc.
+
         ```
         <sup id="fnref:NAME"><a class="footnote-ref" href="#fn:NAME">REF</a></sup>
+        <sup id="fnref2:NAME"><a class="footnote-ref" href="#fn:NAME">REF</a></sup>
         ```
         """
 
@@ -1481,9 +1689,14 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
             raise DocumentError("expected: `<sup>` as the HTML element for a footnote reference")
 
         ref_id = elem.attrib.pop("id", "")
-        if not ref_id.startswith("fnref:"):
-            raise DocumentError("expected: attribute `id` of format `fnref:NAME` applied on `<sup>` for a footnote reference")
-        footnote_ref = ref_id.removeprefix("fnref:")
+        # Match fnref:NAME, fnref2:NAME, fnref3:NAME, etc.
+        match = re.match(r"^fnref(\d*):(.+)$", ref_id)
+        if match is None:
+            raise DocumentError("expected: attribute `id` of format `fnref:NAME` or `fnrefN:NAME` applied on `<sup>` for a footnote reference")
+        numeric_suffix = match.group(1)
+        footnote_name = match.group(2)
+        # Build anchor name: first reference uses NAME, subsequent references use NAME-N
+        footnote_ref = f"{footnote_name}-{numeric_suffix}" if numeric_suffix else footnote_name
 
         link = next((elem.iterchildren(tag="a")), None)
         if link is None:
@@ -1529,6 +1742,13 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         """
         Transforms the footnote definition block.
 
+        When a footnote is referenced multiple times, Python-Markdown generates
+        multiple back-reference links in the footnote definition:
+        - First reference: `#fnref:NAME`
+        - Second reference: `#fnref2:NAME`
+        - Third reference: `#fnref3:NAME`
+        - etc.
+
         ```
         <div class="footnote">
             <hr/>
@@ -1538,6 +1758,13 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
                 </li>
             </ol>
         </div>
+        ```
+
+        With multiple references to the same footnote:
+        ```
+        <li id="fn:NAME">
+            <p>TEXT <a class="footnote-backref" href="#fnref:NAME">↩</a><a class="footnote-backref" href="#fnref2:NAME">↩</a></p>
+        </li>
         ```
         """
 
@@ -1554,21 +1781,33 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
                 raise DocumentError("expected: attribute `id` of format `fn:NAME` applied on `<li>` for a footnote definition")
             footnote_def = def_id.removeprefix("fn:")
 
-            paragraph = next((list_item.iterchildren(tag="p")), None)
-            if paragraph is None:
+            # Find the last paragraph - this is where the backref links are placed
+            paragraphs = list(list_item.iterchildren(tag="p"))
+            if not paragraphs:
                 raise DocumentError("expected: `<p>` as a child of `<li>` in a footnote definition")
+            last_paragraph = paragraphs[-1]
 
-            ref_anchor = next((paragraph.iterchildren(tag="a", reversed=True)), None)
-            if ref_anchor is None:
-                raise DocumentError("expected: `<a>` as the last HTML element in a footnote definition")
+            # Collect all backref anchors (there may be multiple when a footnote is referenced multiple times)
+            # Pattern matches #fnref:NAME, #fnref2:NAME, #fnref3:NAME, etc.
+            # Store tuples of (anchor_element, numeric_suffix, footnote_name)
+            backref_info: list[tuple[ElementType, str, str]] = []
+            for anchor in list(last_paragraph.iterchildren(tag="a")):
+                href = anchor.get("href", "")
+                match = re.match(r"^#fnref(\d*):(.+)$", href)
+                if match is not None:
+                    backref_info.append((anchor, match.group(1), match.group(2)))
 
-            ref_href = ref_anchor.get("href", "")
-            if not ref_href.startswith("#fnref:"):
-                raise DocumentError("expected: attribute `href` of format `#fnref:NAME` applied on last element `<a>` for a footnote definition")
-            footnote_ref = ref_href.removeprefix("#fnref:")
+            if not backref_info:
+                raise DocumentError(
+                    "expected: at least one `<a>` element with `href` attribute of format `#fnref:NAME` or `#fnrefN:NAME` in a footnote definition"
+                )
 
-            # remove back-link generated by Python-Markdown
-            paragraph.remove(ref_anchor)
+            # Remove all back-links generated by Python-Markdown
+            for anchor, _, _ in backref_info:
+                last_paragraph.remove(anchor)
+
+            # Use the first paragraph for the anchor placement
+            first_paragraph = paragraphs[0]
 
             # build new anchor for footnote definition
             def_anchor = AC_ELEM(
@@ -1584,20 +1823,43 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
                 ),
             )
 
-            # build new link to footnote reference in page body
-            ref_link = AC_ELEM(
-                "link",
-                {
-                    AC_ATTR("anchor"): f"footnote-ref-{footnote_ref}",
-                },
-                AC_ELEM("link-body", ET.CDATA("↩")),
-            )
+            # build back-links to each footnote reference in page body
+            # For single reference: ↩
+            # For multiple references: ↩ ↩² ↩³ ...
+            for i, (_, numeric_suffix, footnote_name) in enumerate(backref_info):
+                # Build anchor name matching the reference anchor
+                # First reference: footnote-ref-NAME, subsequent: footnote-ref-NAME-N
+                if numeric_suffix == "":
+                    anchor_name = f"footnote-ref-{footnote_name}"
+                    link_text = "↩"
+                else:
+                    anchor_name = f"footnote-ref-{footnote_name}-{numeric_suffix}"
+                    # Use superscript numbers for subsequent references
+                    superscript_digits = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
+                    link_text = f"↩{numeric_suffix.translate(superscript_digits)}"
 
-            # append children synthesized for Confluence
-            paragraph.insert(0, def_anchor)
-            def_anchor.tail = paragraph.text
-            paragraph.text = None
-            paragraph.append(ref_link)
+                ref_link = AC_ELEM(
+                    "link",
+                    {
+                        AC_ATTR("anchor"): anchor_name,
+                    },
+                    AC_ELEM("link-body", ET.CDATA(link_text)),
+                )
+
+                # Add space before subsequent links
+                if i > 0:
+                    ref_link.tail = None
+                    # Add a space before this link by setting tail on previous element
+                    prev_elem = last_paragraph[-1] if len(last_paragraph) > 0 else None
+                    if prev_elem is not None:
+                        prev_elem.tail = (prev_elem.tail or "") + " "
+
+                last_paragraph.append(ref_link)
+
+            # append anchor to first paragraph
+            first_paragraph.insert(0, def_anchor)
+            def_anchor.tail = first_paragraph.text
+            first_paragraph.text = None
 
     def _transform_tasklist(self, elem: ElementType) -> ElementType:
         """
@@ -1710,6 +1972,12 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
             elif "admonition" in classes:
                 return self._transform_admonition(child)
 
+            # <div class="confluence-skip">...</div>
+            # Content marked for exclusion from Confluence (block-level). Clear the element.
+            elif "confluence-skip" in classes:
+                child.clear()
+                return None
+
         # <blockquote>...</blockquote>
         elif child.tag == "blockquote":
             # Alerts in GitHub
@@ -1759,6 +2027,18 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
 
         # <table>...</table>
         elif child.tag == "table":
+            # check if there is a separator column to indicate a header column
+            for tr in child.iterdescendants("tr"):
+                if len(tr) < 2:
+                    break
+                column_text = tr[1].text
+                if column_text and not column_text.isspace():
+                    break
+            else:
+                for tr in child.iterdescendants("tr"):
+                    tr[0].tag = "th"  # make it a header cell
+                    tr.remove(tr[1])  # remove separator column
+
             for td in child.iterdescendants("td", "th"):
                 normalize_inline(td)
             child.set("data-layout", "default")
@@ -1784,8 +2064,18 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
             if "arithmatex" in classes:
                 return self._transform_inline_math(child)
 
+            # <span class="confluence-skip">...</span>
+            # Content marked for exclusion from Confluence (inline)
+            elif "confluence-skip" in classes:
+                # Explicitly preserve tail before clearing.
+                tail = child.tail
+                child.clear()
+                child.tail = tail
+                return None
+
         # <sup id="fnref:NAME"><a class="footnote-ref" href="#fn:NAME">1</a></sup>
-        elif child.tag == "sup" and child.get("id", "").startswith("fnref:"):
+        # Multiple references: <sup id="fnref2:NAME">...</sup>, <sup id="fnref3:NAME">...</sup>
+        elif child.tag == "sup" and re.match(r"^fnref\d*:", child.get("id", "")):
             self._transform_footnote_ref(child)
             return None
 
@@ -1892,6 +2182,12 @@ class ConfluenceDocument:
         # parse Markdown document and convert to HTML
         html = markdown_to_html(text)
 
+        try:
+            # Transform skip markers in HTML string before parsing
+            html = transform_skip_comments_in_html(html)
+        except RuntimeError as ex:
+            raise ConversionError(f"failed to convert Markdown file: {path}") from ex
+
         # modify HTML as necessary
         if self.options.generated_by is not None:
             generated_by = document.generated_by or self.options.generated_by
@@ -1936,6 +2232,9 @@ class ConfluenceDocument:
         except DocumentError as ex:
             raise ConversionError(path) from ex
 
+        # cleanup empty elements created by confluence-skip markers
+        cleanup_empty_elements(self.root)
+
         # extract information discovered by converter
         self.links = converter.links
         self.images = converter.images
@@ -1945,6 +2244,60 @@ class ConfluenceDocument:
         self.title = document.title or converter.toc.get_title()
         self.labels = document.tags
         self.properties = document.properties
+
+        # Remove the first heading if:
+        # 1. The option is enabled
+        # 2. Title was NOT from front-matter (document.title is None)
+        # 3. A title was successfully extracted from heading (self.title is not None)
+        if (
+            converter_options.skip_title_heading
+            and document.title is None
+            and self.title is not None
+        ):
+            self._remove_first_heading()
+
+    def _remove_first_heading(self) -> None:
+        """
+        Removes the first heading element from the document root.
+
+        This is used when the title was extracted from the first unique top-level heading
+        and the user has requested to skip it from the body to avoid duplication.
+
+        Handles the case where a generated-by info panel may be present as the first child.
+        """
+
+        # Find the first heading element (h1-h6) in the root
+        heading_pattern = re.compile(r"^h[1-6]$", re.IGNORECASE)
+
+        for idx, child in enumerate(self.root):
+            if heading_pattern.match(child.tag) is None:
+                continue
+
+            # Preserve any text that comes after the heading (tail text)
+            tail = child.tail
+
+            # Remove the heading
+            self.root.remove(child)
+
+            # If there was tail text, attach it to the previous sibling's tail
+            # or to the parent's text if this was the first child
+            if tail:
+                if idx > 0:
+                    # Append to previous sibling's tail
+                    prev_sibling = self.root[idx - 1]
+                    if prev_sibling.tail:
+                        prev_sibling.tail += tail
+                    else:
+                        prev_sibling.tail = tail
+                else:
+                    # No previous sibling, append to parent's text
+                    if self.root.text:
+                        self.root.text += tail
+                    else:
+                        self.root.text = tail
+
+            # Only remove the FIRST heading, then stop
+            break
 
     def xhtml(self) -> str:
         return elements_to_string(self.root)

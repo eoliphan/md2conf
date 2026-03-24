@@ -26,3 +26,11 @@ Multi-line cells
 | Name | Description                 |
 | ---- | --------------------------- |
 | Data | A multi-line<br/>paragraph. |
+
+Table with header column
+
+| Number | | English | Hungarian |
+| ------ |-| ------- | --------- |
+| 1      | | one     | egy       |
+| 2      | | two     | kettő     |
+| 3      | | three   | három     |

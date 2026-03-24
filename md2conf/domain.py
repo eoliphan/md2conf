@@ -37,6 +37,11 @@ class ConfluenceDocumentOptions:
     :param use_panel: Whether to transform admonitions and alerts into a Confluence custom panel.
     :param render_kroki: Whether to render Kroki-supported diagrams using a Docker-managed Kroki server.
     :param kroki_image: Docker image to use for the Kroki server.
+    :param skip_title_heading: Whether to remove the first heading from document body when used as page title.
+    :param max_image_width: Maximum display width for images in pixels. Images wider than this
+        will be scaled down for display while preserving the original size for full-size viewing.
+    :param pass_through_languages: When true, pass through unsupported code block language names as-is to
+        Confluence. When false, unsupported languages are replaced with 'none'.
     """
 
     ignore_invalid_url: bool = False
@@ -54,3 +59,6 @@ class ConfluenceDocumentOptions:
     use_panel: bool = False
     render_kroki: bool = True
     kroki_image: str = "yuzutech/kroki"
+    skip_title_heading: bool = False
+    max_image_width: Optional[int] = None
+    pass_through_languages: bool = False
