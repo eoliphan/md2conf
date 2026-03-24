@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar, Literal, Optional, Union
-from urllib.parse import ParseResult, quote_plus, urlparse
+from urllib.parse import ParseResult, parse_qs, quote_plus, urlparse
 
 import lxml.etree as ET
 from strong_typing.core import JsonType
@@ -679,7 +679,17 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         anchor.attrib.pop("title", None)
 
         url = anchor.get("href")
-        if url is None or is_absolute_url(url):
+        if url is None:
+            return None
+
+        # Check for macro link schemes (jira:, status:) before other URL handling
+        parsed_url = urlparse(url)
+        if parsed_url.scheme == "jira":
+            return self._transform_jira_link(anchor, parsed_url)
+        elif parsed_url.scheme == "status":
+            return self._transform_status_link(anchor, parsed_url)
+
+        if is_absolute_url(url):
             return None
 
         LOGGER.debug("Found link %s relative to %s", url, self.path)
@@ -718,6 +728,37 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
             return self._transform_page_link(anchor, relative_url, absolute_path)
         else:
             return self._transform_attachment_link(anchor, absolute_path)
+
+    def _transform_jira_link(self, anchor: ElementType, parsed: ParseResult) -> ElementType:
+        "Transforms a jira: scheme link into a Confluence Jira macro."
+
+        key = parsed.path
+        params = parse_qs(parsed.query)
+        show_summary = params.get("showSummary", ["false"])[0]
+
+        macro = AC_ELEM(
+            "structured-macro",
+            {AC_ATTR("name"): "jira", AC_ATTR("schema-version"): "1"},
+            AC_ELEM("parameter", {AC_ATTR("name"): "key"}, key),
+        )
+
+        if show_summary.lower() == "true":
+            macro.append(AC_ELEM("parameter", {AC_ATTR("name"): "showSummary"}, "true"))
+
+        return macro
+
+    def _transform_status_link(self, anchor: ElementType, parsed: ParseResult) -> ElementType:
+        "Transforms a status: scheme link into a Confluence status lozenge macro."
+
+        color = parsed.path
+        title = anchor.text or ""
+
+        return AC_ELEM(
+            "structured-macro",
+            {AC_ATTR("name"): "status", AC_ATTR("schema-version"): "1"},
+            AC_ELEM("parameter", {AC_ATTR("name"): "colour"}, color.capitalize()),
+            AC_ELEM("parameter", {AC_ATTR("name"): "title"}, title),
+        )
 
     def _transform_page_link(self, anchor: ElementType, relative_url: ParseResult, absolute_path: Path) -> Optional[ElementType]:
         """
