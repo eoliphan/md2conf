@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from md2conf.migrator import migrate_file, migrate
+from md2conf.migrator import migrate, migrate_file
 from tests.utility import TypedTestCase
 
 

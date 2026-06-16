@@ -55,7 +55,8 @@ def migrate_file(path: Path, dry_run: bool = False, backup: bool = True) -> bool
     frontmatter_block, body = extract_frontmatter_block(text_trimmed)
 
     if frontmatter_block is not None:
-        existing: dict[str, Any] = yaml.safe_load(frontmatter_block) or {}
+        data = yaml.safe_load(frontmatter_block)
+        existing: dict[str, Any] = data if isinstance(data, dict) else {}
         # existing frontmatter values win; comment values fill in only missing keys
         merged: dict[str, Any] = {**comment_fields, **existing}
         new_fm = yaml.dump(merged, default_flow_style=False, allow_unicode=True).rstrip()
