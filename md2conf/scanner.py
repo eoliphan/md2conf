@@ -23,6 +23,10 @@ LOGGER = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+_PAGE_ID_RE = r"<!--\s+confluence[-_]page[-_]id:\s*(\d+)\s+-->"
+_SPACE_KEY_RE = r"<!--\s+confluence[-_]space[-_]key:\s*(\S+)\s+-->"
+_GENERATED_BY_RE = r"<!--\s+generated[-_]by:\s*(.*)\s+-->"
+
 
 def _json_to_object(
     typ: type[T],
@@ -175,13 +179,16 @@ class Scanner:
         """Extracts essential properties from a Markdown document string."""
 
         # extract Confluence page ID
-        page_id, text = extract_value(r"<!--\s+confluence[-_]page[-_]id:\s*(\d+)\s+-->", text)
+        page_id, text = extract_value(_PAGE_ID_RE, text)
 
         # extract Confluence space key
-        space_key, text = extract_value(r"<!--\s+confluence[-_]space[-_]key:\s*(\S+)\s+-->", text)
+        space_key, text = extract_value(_SPACE_KEY_RE, text)
 
         # extract 'generated-by' tag text
-        generated_by, text = extract_value(r"<!--\s+generated[-_]by:\s*(.*)\s+-->", text)
+        generated_by, text = extract_value(_GENERATED_BY_RE, text)
+
+        # track whether any comment-based metadata was found (for deprecation warning)
+        has_comment_metadata = page_id is not None or space_key is not None or generated_by is not None
 
         title: Optional[str] = None
         tags: Optional[list[str]] = None
@@ -196,14 +203,20 @@ class Scanner:
             skill = _extract_skill_properties(data)
 
             p = _json_to_object(DocumentProperties, data)
-            page_id = page_id or p.confluence_page_id or p.page_id
-            space_key = space_key or p.confluence_space_key or p.space_key
-            generated_by = generated_by or p.generated_by
+            page_id = p.page_id or p.confluence_page_id or page_id
+            space_key = p.space_key or p.confluence_space_key or space_key
+            generated_by = p.generated_by or generated_by
             title = p.title
             tags = p.tags
             synchronized = p.synchronized
             properties = p.properties
             alignment = p.alignment
+
+        if has_comment_metadata:
+            LOGGER.warning(
+                "Document uses HTML comment metadata (<!-- confluence-page-id: ... -->). "
+                "Run `python -m md2conf migrate <path>` to convert to YAML frontmatter."
+            )
 
         return ScannedDocument(
             page_id=page_id,

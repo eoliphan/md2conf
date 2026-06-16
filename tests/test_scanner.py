@@ -56,6 +56,24 @@ tags:
 Content
 """
 
+# Both frontmatter and comment provide page_id — frontmatter should win after the flip
+both_page_id = """\
+---
+page_id: "frontmatter-id"
+---
+
+<!-- confluence-page-id: 9999 -->
+
+Content
+"""
+
+# Comment provides page_id; no frontmatter equivalent — comment is fallback, still used
+comment_fallback = """\
+<!-- confluence-page-id: 5555 -->
+
+Content
+"""
+
 mermaid_frontmatter = """\
 ---
 title: Tiny flow diagram
@@ -109,6 +127,28 @@ class TestScanner(TypedTestCase):
         self.assertEqual(document.generated_by, "This page has been generated with md2conf.")
         self.assertEqual(document.title, "Markdown example document")
         self.assertEqual(document.tags, ["markdown", "confluence", "md", "wiki"])
+
+    def test_frontmatter_wins_over_comment(self) -> None:
+        """After priority flip, frontmatter page_id overrides HTML comment page_id."""
+        document = Scanner().parse(both_page_id)
+        self.assertEqual(document.page_id, "frontmatter-id")
+
+    def test_comment_fallback_still_works(self) -> None:
+        """When frontmatter has no page_id, the HTML comment value is used as fallback."""
+        document = Scanner().parse(comment_fallback)
+        self.assertEqual(document.page_id, "5555")
+
+    def test_deprecation_warning_emitted_for_comment_metadata(self) -> None:
+        """Scanning a file with HTML comment metadata emits a WARNING."""
+        with self.assertLogs("md2conf.scanner", level="WARNING") as cm:
+            Scanner().parse(comment_fallback)
+        self.assertTrue(any("migrate" in msg for msg in cm.output))
+
+    def test_no_warning_for_frontmatter_only(self) -> None:
+        """Scanning a file with only frontmatter emits no deprecation warning."""
+        frontmatter_only = "---\npage_id: '123'\n---\n\nContent\n"
+        with self.assertNoLogs("md2conf.scanner", level="WARNING"):
+            Scanner().parse(frontmatter_only)
 
     def test_mermaid_frontmatter(self) -> None:
         properties = MermaidScanner().read(mermaid_frontmatter)
