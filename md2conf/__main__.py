@@ -360,7 +360,45 @@ def get_help() -> str:
         return buf.getvalue()
 
 
+def run_migrate(argv: list[str]) -> None:
+    """Entry point for the migrate subcommand."""
+    parser = argparse.ArgumentParser(
+        prog="md2conf migrate",
+        description="Migrate HTML comment metadata to YAML frontmatter.",
+    )
+    parser.add_argument("mdpath", help="Path to Markdown file or directory to migrate.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Show what would change without writing any files.",
+    )
+    parser.add_argument(
+        "--no-backup",
+        dest="backup",
+        action="store_false",
+        default=True,
+        help="Skip creating .md.bak backup files.",
+    )
+    args = parser.parse_args(argv)
+
+    from .migrator import migrate
+
+    path = Path(args.mdpath)
+    migrated, clean, errors = migrate(path, dry_run=args.dry_run, backup=args.backup)
+    verb = "Would migrate" if args.dry_run else "Migrated"
+    print(f"\nScanned {migrated + clean + errors} file(s).")
+    print(f"  {verb}:      {migrated}")
+    print(f"  Already clean: {clean}")
+    if errors:
+        print(f"  Errors:        {errors}")
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "migrate":
+        run_migrate(sys.argv[2:])
+        return
+
     parser = get_parser()
     args = Arguments()
     parser.parse_args(namespace=args)
