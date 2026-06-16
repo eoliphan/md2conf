@@ -6,6 +6,7 @@ Copyright 2022-2025, Levente Hunyadi
 :see: https://github.com/hunyadi/md2conf
 """
 
+import logging
 import re
 import typing
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from strong_typing.core import JsonType
 from strong_typing.serialization import DeserializerOptions, json_to_object
 
 from .mermaid import MermaidConfigProperties
+
+LOGGER = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -165,13 +168,11 @@ class ScannedDocument:
 
 class Scanner:
     def read(self, absolute_path: Path) -> ScannedDocument:
-        """
-        Extracts essential properties from a Markdown document.
-        """
+        """Extracts essential properties from a Markdown document."""
+        return self.parse(absolute_path.read_text(encoding="utf-8"))
 
-        # parse file
-        with open(absolute_path, "r", encoding="utf-8") as f:
-            text = f.read()
+    def parse(self, text: str) -> ScannedDocument:
+        """Extracts essential properties from a Markdown document string."""
 
         # extract Confluence page ID
         page_id, text = extract_value(r"<!--\s+confluence[-_]page[-_]id:\s*(\d+)\s+-->", text)
@@ -192,7 +193,6 @@ class Scanner:
         # extract front-matter
         data, text = extract_frontmatter_properties(text)
         if data is not None:
-            # extract skill properties from top-level frontmatter keys before DocumentProperties deserialization
             skill = _extract_skill_properties(data)
 
             p = _json_to_object(DocumentProperties, data)
