@@ -1,185 +1,231 @@
-# User @mentions Design
+# User Mentions Design
 
-**Date:** 2026-06-16
+**Date:** 2026-06-16 (revised 2026-06-17)
 
 ## Overview
 
-Translate `@username` syntax in Markdown documents into Confluence user mention macros in the generated Confluence Storage Format (CSF). When a mention cannot be resolved (user not found, or running in local mode), emit a warning and leave the token as plain text.
+Translate standard Markdown email links of the form `[Name](mailto:email@example.com)` into Confluence user mention macros in the generated Confluence Storage Format (CSF). When a mention cannot be resolved (email not matched to a Confluence user), emit a warning and leave the link as a standard mailto anchor.
+
+This follows the upstream `hunyadi/md2conf` implementation from commit `d2f3e8e`.
+
+## Syntax
+
+Users are referenced using standard Markdown link syntax with a `mailto:` URL:
+
+```markdown
+Please review with [John Smith](mailto:jsmith@example.com) before merging.
+```
+
+This renders as a normal email hyperlink in GitHub, VS Code, and other Markdown renderers. When synchronized to Confluence, md2conf replaces matching `mailto:` links with user mention macros.
 
 ## Scope
 
 **In scope:**
-- `@username` bare-word syntax (letters, digits, dots, hyphens, underscores)
-- Resolution via Confluence login username (not email, not display name)
-- Both Cloud/v2 (`ri:account-id`) and Data Center/v1 (`ri:username`) API paths
-- Warn-and-skip for unresolvable mentions
-- Silent plain-text fallback in `--local` mode (no resolver available)
+- `[Name](mailto:email)` link syntax → Confluence mention
+- Resolution by exact email address match against Confluence user profiles
+- Cloud/v2: emits `<ac:link><ri:user ri:account-id="..."/></ac:link>`
+- Data Center/v1: emits `<ac:link><ri:user ri:username="..."/></ac:link>` (login username from API response)
+- New `--user-mentions` / `--no-user-mentions` CLI flag (default: enabled)
+- Warn-and-skip for unresolvable emails
+- No-op in `--local` mode (links left as mailto anchors)
 
 **Out of scope:**
-- `@{Display Name with spaces}` syntax
-- Caching of user lookups
-- `--no-resolve-mentions` opt-out flag
+- `@username` bare-word syntax
+- Partial name matching or fuzzy lookup
+- Caching user lookups across invocations
 
 ## Architecture
 
-Four files change. No new files.
+Six files change. One new module.
 
 | File | Change |
 |---|---|
-| `md2conf/markdown.py` | New `MentionExtension` and `MentionInlineProcessor` |
-| `md2conf/converter.py` | Thread `mention_resolver` through `create()` and `__init__()`; handle `<mention>` placeholder elements in CSF transformer |
-| `md2conf/api.py` | New `get_user_by_name(username)` public method; v1 and v2 private implementations |
-| `md2conf/processor.py` | Add `mention_resolver` attribute alongside `kroki_server`; pass to `ConfluenceDocument.create()` |
+| `md2conf/text.py` | New `user_references(text)` function |
+| `md2conf/collection.py` | New `ConfluenceUserCollection` class |
+| `md2conf/domain.py` | Add `user_mentions: bool = True` to `ConfluenceDocumentOptions` |
+| `md2conf/processor.py` | `DocumentNode` gets `users` field; `_synchronize_content` drives user resolution; new abstract `_synchronize_users` |
+| `md2conf/converter.py` | `ConfluenceStorageFormatConverter` gets `user_metadata`; `_transform_mention` handles `mailto:` links |
+| `md2conf/publisher.py` | `SynchronizingProcessor._synchronize_users` resolves emails via API |
+| `md2conf/__main__.py` | Add `--user-mentions` / `--no-user-mentions` arguments |
 
-`SynchronizingProcessor.__init__` sets `mention_resolver = api.get_user_by_name` at construction time. `LocalConverter` leaves it `None`.
+`LocalConverter` returns an empty `ConfluenceUserCollection` from its `_synchronize_users` override.
 
-## Resolver Interface
+## Data Flow
 
-```python
-# In md2conf/converter.py
-from typing import Callable, Optional
-MentionResolver = Callable[[str], Optional[tuple[str, str]]]
+```
+Index phase (per file):
+  Scanner reads Markdown text
+  user_references(text) → set of (email, name) tuples
+  stored on DocumentNode.users
+
+_synchronize_content phase:
+  Collect users = union of node.users for all descendants
+  if options.user_mentions:
+      self.user_metadata = self._synchronize_users(users)
+  else:
+      self.user_metadata = ConfluenceUserCollection()  # empty
+
+_synchronize_users (SynchronizingProcessor):
+  for each (email, name) in users:
+      api.get_users(name)  → list[ConfluenceUser]
+      find entry where user.email == email
+      store (email → (attr_name, attr_val)) in ConfluenceUserCollection
+
+_synchronize_page:
+  ConfluenceDocument.create(..., user_metadata=self.user_metadata)
+  converter receives user_metadata
+
+Conversion phase:
+  _transform_anchor: if href starts with "mailto:"
+      email = href[len("mailto:"):]
+      result = user_metadata.get(email)
+      if result: return <ac:link><ri:user {attr_name}="{attr_val}"/></ac:link>
+      else: return None (leave as standard mailto link)
 ```
 
-The resolver accepts a username string and returns either:
-- `("ri:account-id", "557058:abc-def")` — Cloud/v2
-- `("ri:username", "jsmith")` — Data Center/v1
-- `None` — user not found
+## New Functions and Types
 
-The converter is version-agnostic: it assembles the CSF element from the returned attribute pair without knowing which Confluence deployment is in use.
-
-## Conversion Flow
-
-Given `@jsmith` in Markdown text:
-
-1. `MentionInlineProcessor.handleMatch()` fires on the regex `@([A-Za-z][A-Za-z0-9._-]*)`.
-2. If `mention_resolver` is `None` (local mode): leave `@jsmith` as plain text, no warning.
-3. If `mention_resolver("jsmith")` returns `None`: emit `LOGGER.warning("Cannot resolve mention @jsmith: user not found")` and leave as plain text.
-4. If resolver returns `(attr_name, attr_val)`: emit a placeholder element into the Markdown HTML output:
-   ```html
-   <mention ri-attr="ri:account-id" ri-val="557058:abc">@jsmith</mention>
-   ```
-5. The CSF transformer in `converter.py` converts `<mention>` elements to:
-   ```xml
-   <ac:link><ri:user ri:account-id="557058:abc"/></ac:link>
-   ```
-
-## Markdown Extension
+### `md2conf/text.py`
 
 ```python
-class MentionInlineProcessor(InlineProcessor):
-    def __init__(self, pattern: str, md: Markdown, resolver: Optional[MentionResolver]) -> None:
-        super().__init__(pattern, md)
-        self.resolver = resolver
+import re
 
-    def handleMatch(self, m: re.Match, data: str) -> tuple[Optional[Element], int, int]:
-        username = m.group(1)
-        if self.resolver is None:
-            return None, m.start(0), m.end(0)  # leave as-is
-        result = self.resolver(username)
-        if result is None:
-            LOGGER.warning("Cannot resolve mention @%s: user not found in Confluence", username)
-            return None, m.start(0), m.end(0)  # leave as-is
-        attr_name, attr_val = result
-        el = Element("mention")
-        el.set("ri-attr", attr_name)
-        el.set("ri-val", attr_val)
-        el.text = f"@{username}"
-        return el, m.start(0), m.end(0)
-
-
-class MentionExtension(Extension):
-    def __init__(self, resolver: Optional[MentionResolver] = None) -> None:
-        self.resolver = resolver
-        super().__init__()
-
-    def extendMarkdown(self, md: Markdown) -> None:
-        # Priority 175 — runs after links (170) but before emphasis (180)
-        md.inlinePatterns.register(
-            MentionInlineProcessor(r"@([A-Za-z][A-Za-z0-9._-]*)", md, self.resolver),
-            "mention",
-            175,
+def user_references(text: str) -> set[tuple[str, str]]:
+    """
+    Extracts [Name](mailto:email) patterns from Markdown text.
+    Returns a set of (email, name) tuples.
+    """
+    return set(
+        (m.group("email"), m.group("name"))
+        for m in re.finditer(
+            r"\[(?P<name>[^\[\]]+)\]\(mailto:(?P<email>[^()]+)\)", text
         )
-```
-
-`markdown_to_html()` gains an optional `mention_resolver` parameter and includes `MentionExtension(mention_resolver)` in the extensions list.
-
-## CSF Transformer
-
-In `converter.py`, the element visitor for the `<mention>` tag:
-
-```python
-# Converts <mention ri-attr="ri:account-id" ri-val="557058:abc">@jsmith</mention>
-# to <ac:link><ri:user ri:account-id="557058:abc"/></ac:link>
-def _visit_mention(self, el: ElementType) -> ElementType:
-    link = Element(AC("link"))
-    user = SubElement(link, RI("user"))
-    user.set(el.get("ri-attr"), el.get("ri-val"))
-    return link
-```
-
-## API Methods
-
-### v2 (Cloud)
-
-```
-GET /wiki/rest/api/user/search?query={username}&limit=5
-```
-
-Iterate results; find the entry where `username` field matches exactly. Return `("ri:account-id", result["accountId"])`. Return `None` if no exact match.
-
-### v1 (Data Center/Server)
-
-```
-GET /rest/api/user?username={username}
-```
-
-On HTTP 200: return `("ri:username", username)` — the login username is used directly in CSF, no internal key needed.
-On HTTP 404 or error: return `None`.
-
-Public method signature:
-
-```python
-def get_user_by_name(self, username: str) -> Optional[tuple[str, str]]: ...
-```
-
-## Threading Through Processor
-
-`Processor.__init__` gets a new `mention_resolver: Optional[MentionResolver] = None` parameter, stored as `self.mention_resolver`. `_synchronize_page` passes it to `ConfluenceDocument.create()`:
-
-```python
-def _synchronize_page(self, path: Path, page_id: ConfluencePageID) -> None:
-    page_id, document = ConfluenceDocument.create(
-        path, self.options, self.root_dir, self.site, self.page_metadata,
-        kroki_server=self.kroki_server,
-        mention_resolver=self.mention_resolver,
     )
-    self._update_page(page_id, document, path)
 ```
 
-`SynchronizingProcessor.__init__` sets it at construction:
+### `md2conf/collection.py`
 
 ```python
-super().__init__(
-    options, api.site, root_dir,
-    kroki_server=kroki_server,
-    mention_resolver=api.get_user_by_name,
-)
+class ConfluenceUserCollection(KeyValueCollection[str, tuple[str, str]]):
+    """
+    Maps Confluence user email addresses to their CSF attribute tuple.
+    Stored as (ri_attribute_name, ri_attribute_value), e.g.:
+      v2: ("ri:account-id", "557058:abc-def")
+      v1: ("ri:username",   "jsmith")
+    """
+    ...
 ```
 
-`ProcessorFactory` propagates the same parameter to allow `LocalConverter` to pass `None`.
+### `md2conf/domain.py`
+
+Add to `ConfluenceDocumentOptions`:
+```python
+user_mentions: bool = True
+```
+
+### `md2conf/processor.py`
+
+`DocumentNode` gains:
+```python
+users: set[tuple[str, str]]  # (email, name) pairs from user_references()
+```
+
+`Processor` gains:
+```python
+user_metadata: ConfluenceUserCollection
+
+@abstractmethod
+def _synchronize_users(self, users: set[tuple[str, str]]) -> ConfluenceUserCollection: ...
+```
+
+`_synchronize_content(tree, parent_to_children)` collects users from all descendants, calls `_synchronize_users`, stores `self.user_metadata`, then proceeds to `_synchronize_order` and `_synchronize_page`.
+
+### `md2conf/publisher.py`
+
+```python
+@override
+def _synchronize_users(self, users: set[tuple[str, str]]) -> ConfluenceUserCollection:
+    user_metadata = ConfluenceUserCollection()
+    for email, name in users:
+        if email in user_metadata:
+            continue
+        remote_users = self.api.get_users(name)
+        for remote_user in remote_users:
+            if remote_user.email == email:
+                user_metadata.add(email, remote_user.account_tuple)
+                break
+        else:
+            LOGGER.warning("Cannot resolve mention for email %s (name: %s): user not found", email, name)
+    return user_metadata
+```
+
+### `md2conf/api.py` — new `get_users` method
+
+```python
+def get_users(self, name: str) -> list[ConfluenceUser]: ...
+```
+
+- v2: `GET /wiki/rest/api/user/search?query={name}&limit=10` → returns list of matching users with `accountId` and `email`
+- v1: `GET /rest/api/user/search?username={name}` → returns list; for each, fetch `/rest/api/user?username={username}` to get email
+
+`ConfluenceUser` domain object:
+```python
+@dataclass
+class ConfluenceUser:
+    email: Optional[str]
+    account_tuple: tuple[str, str]  # (ri_attr, ri_val) ready for CSF emission
+```
+
+For v2: `account_tuple = ("ri:account-id", accountId)`
+For v1: `account_tuple = ("ri:username", username)`
+
+### `md2conf/converter.py`
+
+`ConfluenceStorageFormatConverter.__init__` gains `user_metadata: ConfluenceUserCollection`.
+
+`_transform_anchor` (existing link handler) gains a branch:
+
+```python
+if url.startswith("mailto:"):
+    mention = self._transform_mention(url)
+    if mention is not None:
+        return mention
+```
+
+New `_transform_mention`:
+```python
+def _transform_mention(self, url: str) -> Optional[ElementType]:
+    email = url[len("mailto:"):]
+    result = self.user_metadata.get(email)
+    if result is None:
+        return None
+    attr_name, attr_val = result
+    return AC_ELEM("link", {}, RI_ELEM("user", {RI_ATTR(attr_name.split(":")[1]): attr_val}))
+```
+
+## CLI
+
+```
+--user-mentions         Translate [Name](mailto:email) links to Confluence user mentions (default).
+--no-user-mentions      Leave mailto: links as standard hyperlinks.
+```
 
 ## Testing
 
 ### Unit tests (`tests/test_mentions.py`)
-- `@username` with a mock resolver returning v2 account-id → correct `<ac:link>` CSF
-- `@username` with a mock resolver returning v1 username → correct `<ac:link>` CSF
-- `@unknown` with resolver returning `None` → plain text output + WARNING logged
-- `@username` with `mention_resolver=None` (local mode) → plain text, no warning
-- `@username` inside a fenced code block → not converted (Markdown InlineProcessor does not run inside code spans/blocks)
 
-### API unit tests (`tests/test_api_mappers.py` or new `tests/test_api_mentions.py`)
-- `_get_user_by_name_v2`: mock response with matching `username` field → returns `("ri:account-id", ...)`
-- `_get_user_by_name_v2`: mock response with no exact match → returns `None`
-- `_get_user_by_name_v1`: mock 200 response → returns `("ri:username", "jsmith")`
-- `_get_user_by_name_v1`: mock 404 response → returns `None`
+- `user_references("[Alice](mailto:alice@example.com) and [Bob](mailto:bob@example.com)")` → `{("alice@example.com", "Alice"), ("bob@example.com", "Bob")}`
+- `user_references("no mentions here")` → `set()`
+- `user_references` does not match bare `mailto:alice@example.com` (no link text)
+
+### Conversion tests (`tests/test_conversion.py`)
+
+- `[Name](mailto:known@example.com)` with populated `ConfluenceUserCollection` → `<ac:link><ri:user ri:account-id="557058:abc"/></ac:link>` (v2 form)
+- `[Name](mailto:unknown@example.com)` with empty collection → standard `<a href="mailto:...">` preserved
+- `--no-user-mentions`: mailto links always left as anchors
+
+### API unit tests (`tests/test_api_mentions.py`)
+
+- `get_users` v2: mock response with matching email → returns `ConfluenceUser` with correct `account_tuple`
+- `get_users` v2: mock response with no email match → returns empty list
+- `get_users` v1: mock search + profile responses → correct `("ri:username", "jsmith")` tuple
