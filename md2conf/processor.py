@@ -152,7 +152,7 @@ class Processor:
         Synchronizes a single Markdown document with its corresponding Confluence page.
         """
 
-        page_id, document = ConfluenceDocument.create(path, self.options, self.root_dir, self.site, self.page_metadata, kroki_server=self.kroki_server)
+        page_id, document = ConfluenceDocument.create(path, self.options, self.root_dir, self.site, self.page_metadata, kroki_server=self.kroki_server, user_metadata=self.user_metadata)
         self._update_page(page_id, document, path)
 
     @abstractmethod

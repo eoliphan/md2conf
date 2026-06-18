@@ -24,7 +24,7 @@ from strong_typing.core import JsonType
 from strong_typing.exception import JsonTypeError
 
 from . import drawio, mermaid
-from .collection import ConfluencePageCollection
+from .collection import ConfluencePageCollection, ConfluenceUserCollection
 from .csf import AC_ATTR, AC_ELEM, HTML, RI_ATTR, RI_ELEM, ParseError, elements_from_strings, elements_to_string, normalize_inline
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
 from .emoticon import emoji_to_emoticon
@@ -578,6 +578,7 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
     site_metadata: ConfluenceSiteMetadata
     page_metadata: ConfluencePageCollection
     kroki_server: Optional[KrokiServer]
+    user_metadata: ConfluenceUserCollection
 
     def __init__(
         self,
@@ -587,6 +588,7 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         site_metadata: ConfluenceSiteMetadata,
         page_metadata: ConfluencePageCollection,
         kroki_server: Optional[KrokiServer] = None,
+        user_metadata: Optional[ConfluenceUserCollection] = None,
     ) -> None:
         super().__init__()
 
@@ -604,6 +606,7 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         self.site_metadata = site_metadata
         self.page_metadata = page_metadata
         self.kroki_server = kroki_server
+        self.user_metadata = user_metadata if user_metadata is not None else ConfluenceUserCollection()
 
     def _calculate_display_width(self, natural_width: Optional[int]) -> Optional[int]:
         """
@@ -666,6 +669,21 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         else:
             raise DocumentError(msg)
 
+    def _transform_mention(self, url: str) -> Optional[ElementType]:
+        """
+        Converts a ``mailto:`` URL to a Confluence user mention element if the email is known.
+
+        :param url: The href value starting with ``mailto:``.
+        :returns: ``<ac:link><ri:user .../></ac:link>`` element, or ``None`` if email not in user_metadata.
+        """
+        email = url[len("mailto:"):]
+        result = self.user_metadata.get(email)
+        if result is None:
+            return None
+        csf_attr, csf_value = result
+        attr_local = csf_attr.split(":", 1)[-1]  # "account-id" from "ri:account-id"
+        return AC_ELEM("link", {}, RI_ELEM("user", {RI_ATTR(attr_local): csf_value}))
+
     def _transform_link(self, anchor: ElementType) -> Optional[ElementType]:
         """
         Transforms links (HTML anchor `<a>`).
@@ -679,7 +697,13 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         anchor.attrib.pop("title", None)
 
         url = anchor.get("href")
-        if url is None or is_absolute_url(url):
+        if url is None:
+            return None
+        if url.startswith("mailto:"):
+            mention = self._transform_mention(url)
+            if mention is not None:
+                return mention
+        if is_absolute_url(url):
             return None
 
         LOGGER.debug("Found link %s relative to %s", url, self.path)
@@ -2138,6 +2162,7 @@ class ConfluenceDocument:
         site_metadata: ConfluenceSiteMetadata,
         page_metadata: ConfluencePageCollection,
         kroki_server: Optional[KrokiServer] = None,
+        user_metadata: Optional[ConfluenceUserCollection] = None,
     ) -> tuple[ConfluencePageID, "ConfluenceDocument"]:
         path = path.resolve(True)
 
@@ -2153,7 +2178,7 @@ class ConfluenceDocument:
             else:
                 raise PageError("missing Confluence page ID")
 
-        return page_id, ConfluenceDocument(path, document, options, root_dir, site_metadata, page_metadata, kroki_server)
+        return page_id, ConfluenceDocument(path, document, options, root_dir, site_metadata, page_metadata, kroki_server, user_metadata)
 
     def __init__(
         self,
@@ -2164,6 +2189,7 @@ class ConfluenceDocument:
         site_metadata: ConfluenceSiteMetadata,
         page_metadata: ConfluencePageCollection,
         kroki_server: Optional[KrokiServer] = None,
+        user_metadata: Optional[ConfluenceUserCollection] = None,
     ) -> None:
         "Converts a single Markdown document to Confluence Storage Format."
 
@@ -2224,7 +2250,7 @@ class ConfluenceDocument:
         )
         if document.alignment is not None:
             converter_options.alignment = document.alignment
-        converter = ConfluenceStorageFormatConverter(converter_options, path, root_dir, site_metadata, page_metadata, kroki_server=kroki_server)
+        converter = ConfluenceStorageFormatConverter(converter_options, path, root_dir, site_metadata, page_metadata, kroki_server=kroki_server, user_metadata=user_metadata)
 
         # execute HTML-to-Confluence converter
         try:
