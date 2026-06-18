@@ -57,6 +57,7 @@ class Arguments(argparse.Namespace):
     skip_title_heading: bool
     max_image_width: Optional[int]
     pass_through_languages: bool
+    user_mentions: bool
 
 
 class KwargsAppendAction(argparse.Action):
@@ -344,6 +345,19 @@ def get_parser() -> argparse.ArgumentParser:
         default=False,
         help="Pass through unsupported code block languages to Confluence instead of replacing with 'none'.",
     )
+    parser.add_argument(
+        "--user-mentions",
+        dest="user_mentions",
+        action="store_true",
+        default=True,
+        help="Resolve email-link syntax (@[Name](mailto:email)) to Confluence user mentions (default: enabled).",
+    )
+    parser.add_argument(
+        "--no-user-mentions",
+        dest="user_mentions",
+        action="store_false",
+        help="Render email links as regular links instead of Confluence user mentions.",
+    )
     return parser
 
 
@@ -435,6 +449,7 @@ def main() -> None:
         skip_title_heading=args.skip_title_heading,
         max_image_width=args.max_image_width,
         pass_through_languages=args.pass_through_languages,
+        user_mentions=args.user_mentions,
     )
 
     if args.local:
