@@ -6,6 +6,8 @@ Copyright 2022-2025, Levente Hunyadi
 :see: https://github.com/hunyadi/md2conf
 """
 
+import re
+
 
 def wrap_text(text: str, line_length: int = 160) -> str:
     """
@@ -52,3 +54,18 @@ def wrap_text(text: str, line_length: int = 160) -> str:
             pos = right  # skip the whitespace (already replaced)
 
     return output.decode("utf-8")
+
+
+def user_references(text: str) -> set[tuple[str, str]]:
+    """
+    Extracts user references from a Markdown document.
+
+    User references are expected to be in the format `[NAME](mailto:EMAIL)`.
+
+    :param text: Input text.
+    :returns: A set of tuples ``(EMAIL, NAME)`` extracted from the input text.
+    """
+    return set(
+        (m.group("email"), m.group("name"))
+        for m in re.finditer(r"\[(?P<name>[^\[\]]+)\]\(mailto:(?P<email>[^()]+)\)", text)
+    )
