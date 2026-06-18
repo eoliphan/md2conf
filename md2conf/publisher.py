@@ -46,15 +46,18 @@ class SynchronizingProcessor(Processor):
         self.api = api
 
     @override
-    def _synchronize_tree(self, root: DocumentNode, root_id: Optional[ConfluencePageID]) -> None:
+    def _synchronize_structure(self, root: DocumentNode) -> dict[str, list[str]]:
         """
         Creates the cross-reference index and synchronizes the directory tree structure with the Confluence page hierarchy.
 
         Creates new Confluence pages as necessary, e.g. if no page is linked in the Markdown document, or no page is found with lookup by page title.
 
         Updates the original Markdown document to add tags to associate the document with its corresponding Confluence page.
+
+        :returns: Mapping of parent page ID → list of direct child page IDs in Confluence display order.
         """
 
+        root_id = self.options.root_page_id
         if root.page_id is None and root_id is None:
             raise PageError(f"expected: root page ID in options, or explicit page ID in {root.absolute_path}")
         elif root.page_id is not None and root_id is not None:
@@ -69,9 +72,16 @@ class SynchronizingProcessor(Processor):
         else:
             raise NotImplementedError("condition not exhaustive")
 
-        self._synchronize_subtree(root, real_id)
+        parent_to_children: dict[str, list[str]] = {}
+        self._synchronize_subtree(root, real_id, parent_to_children)
+        return parent_to_children
 
-    def _synchronize_subtree(self, node: DocumentNode, parent_id: ConfluencePageID) -> None:
+    def _synchronize_subtree(
+        self,
+        node: DocumentNode,
+        parent_id: ConfluencePageID,
+        parent_to_children: dict[str, list[str]],
+    ) -> None:
         if node.page_id is not None:
             # verify if page exists
             page = self.api.get_page_properties(node.page_id)
@@ -128,8 +138,49 @@ class SynchronizingProcessor(Processor):
         )
         self.page_metadata.add(node.absolute_path, data)
 
+        # Record the current Confluence child order for this page
+        child_ids = self.api.get_child_page_ids(page.id)
+        parent_to_children[page.id] = child_ids
+
         for child_node in node.children():
-            self._synchronize_subtree(child_node, ConfluencePageID(page.id))
+            self._synchronize_subtree(child_node, ConfluencePageID(page.id), parent_to_children)
+
+    @override
+    def _synchronize_order(self, tree: DocumentNode, parent_to_children: dict[str, list[str]]) -> None:
+        """Reorders child pages in Confluence to match local directory sort order."""
+        self._reorder_node(tree, parent_to_children)
+
+    def _reorder_node(self, node: DocumentNode, parent_to_children: dict[str, list[str]]) -> None:
+        metadata = self.page_metadata.get(node.absolute_path)
+        if metadata is None:
+            return
+
+        parent_id = metadata.page_id
+
+        local_order: list[str] = []
+        for child in node.children():
+            child_meta = self.page_metadata.get(child.absolute_path)
+            if child_meta is not None:
+                local_order.append(child_meta.page_id)
+
+        if local_order:
+            child_pages = parent_to_children.get(parent_id)
+            if child_pages:
+                managed_set = set(local_order)
+                remote_order = [cid for cid in child_pages if cid in managed_set]
+
+                if remote_order != local_order:
+                    from .order import sort_items_in_order
+
+                    sort_items_in_order(
+                        remote_order,
+                        key=lambda page_id: local_order.index(page_id),
+                        insert_before=self.api.move_page_before_sibling,
+                        insert_after=self.api.move_page_after_sibling,
+                    )
+
+        for child in node.children():
+            self._reorder_node(child, parent_to_children)
 
     @override
     def _synchronize_users(self, users: set[tuple[str, str]]) -> ConfluenceUserCollection:

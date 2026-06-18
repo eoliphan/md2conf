@@ -50,11 +50,13 @@ class LocalProcessor(Processor):
         self.out_dir = out_dir or root_dir
 
     @override
-    def _synchronize_tree(self, root: DocumentNode, root_id: Optional[ConfluencePageID]) -> None:
+    def _synchronize_structure(self, root: DocumentNode) -> dict[str, list[str]]:
         """
         Creates the cross-reference index.
 
         Does not change Markdown files.
+
+        :returns: Empty mapping (local mode has no Confluence page hierarchy to query).
         """
 
         for node in root.all():
@@ -74,6 +76,12 @@ class LocalProcessor(Processor):
                     synchronized=node.synchronized,
                 ),
             )
+
+        return {}
+
+    @override
+    def _synchronize_order(self, tree: DocumentNode, parent_to_children: dict[str, list[str]]) -> None:
+        pass
 
     @override
     def _synchronize_users(self, users: set[tuple[str, str]]) -> ConfluenceUserCollection:
