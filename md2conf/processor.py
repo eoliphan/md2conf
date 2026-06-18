@@ -13,7 +13,7 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Iterable, Optional
 
-from .collection import ConfluencePageCollection
+from .collection import ConfluencePageCollection, ConfluenceUserCollection
 from .converter import ConfluenceDocument
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
 from .environment import ArgumentError
@@ -21,6 +21,7 @@ from .kroki import KrokiServer
 from .matcher import DirectoryEntry, FileEntry, Matcher, MatcherOptions
 from .metadata import ConfluenceSiteMetadata
 from .scanner import Scanner
+from .text import user_references
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class DocumentNode:
     space_key: Optional[str]
     title: Optional[str]
     synchronized: bool
+    users: set[tuple[str, str]]
 
     _children: list["DocumentNode"]
 
@@ -41,12 +43,14 @@ class DocumentNode:
         space_key: Optional[str],
         title: Optional[str],
         synchronized: bool,
-    ):
+        users: Optional[set[tuple[str, str]]] = None,
+    ) -> None:
         self.absolute_path = absolute_path
         self.page_id = page_id
         self.space_key = space_key
         self.title = title
         self.synchronized = synchronized
+        self.users = users if users is not None else set()
         self._children = []
 
     def count(self) -> int:
@@ -97,6 +101,7 @@ class Processor:
         self.root_dir = root_dir
         self.kroki_server = kroki_server
         self.page_metadata = ConfluencePageCollection()
+        self.user_metadata: ConfluenceUserCollection = ConfluenceUserCollection()
 
     def process_directory(self, local_dir: Path) -> None:
         """
@@ -130,6 +135,13 @@ class Processor:
         # synchronize directory tree structure with page hierarchy in space (find matching pages in Confluence)
         self._synchronize_tree(root, self.options.root_page_id)
 
+        # resolve user mentions across all indexed documents
+        if self.options.user_mentions:
+            users: set[tuple[str, str]] = set()
+            for node in root.all():
+                users.update(node.users)
+            self.user_metadata = self._synchronize_users(users)
+
         # synchronize files in directory hierarchy with pages in space
         for path, metadata in self.page_metadata.items():
             if metadata.synchronized:
@@ -151,6 +163,16 @@ class Processor:
         Creates new Confluence pages as necessary, e.g. if no page is linked in the Markdown document, or no page is found with lookup by page title.
 
         May update the original Markdown document to add tags to associate the document with its corresponding Confluence page.
+        """
+        ...
+
+    @abstractmethod
+    def _synchronize_users(self, users: set[tuple[str, str]]) -> ConfluenceUserCollection:
+        """
+        Resolves email addresses to Confluence user identifiers.
+
+        :param users: Set of ``(email, name)`` tuples extracted from Markdown documents.
+        :returns: Collection mapping email to CSF mention attribute tuple.
         """
         ...
 
@@ -238,6 +260,7 @@ class Processor:
             space_key=document.space_key,
             title=document.title,
             synchronized=document.synchronized if document.synchronized is not None else True,
+            users=user_references(document.text),
         )
 
     def _generate_hash(self, absolute_path: Path) -> str:
