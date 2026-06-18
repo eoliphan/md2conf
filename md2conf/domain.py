@@ -42,6 +42,8 @@ class ConfluenceDocumentOptions:
         will be scaled down for display while preserving the original size for full-size viewing.
     :param pass_through_languages: When true, pass through unsupported code block language names as-is to
         Confluence. When false, unsupported languages are replaced with 'none'.
+    :param user_mentions: When true, convert email-link syntax (@[User Name](mailto:email@example.com)) to
+        Confluence user mentions; when false, render as regular links.
     """
 
     ignore_invalid_url: bool = False
@@ -62,3 +64,4 @@ class ConfluenceDocumentOptions:
     skip_title_heading: bool = False
     max_image_width: Optional[int] = None
     pass_through_languages: bool = False
+    user_mentions: bool = True
