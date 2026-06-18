@@ -133,7 +133,7 @@ class Processor:
         """
 
         # synchronize directory tree structure with page hierarchy in space (find matching pages in Confluence)
-        self._synchronize_tree(root, self.options.root_page_id)
+        parent_to_children = self._synchronize_structure(root)
 
         # resolve user mentions across all indexed documents
         if self.options.user_mentions:
@@ -141,6 +141,8 @@ class Processor:
             for node in root.all():
                 users.update(node.users)
             self.user_metadata = self._synchronize_users(users)
+
+        self._synchronize_order(root, parent_to_children)
 
         # synchronize files in directory hierarchy with pages in space
         for path, metadata in self.page_metadata.items():
@@ -156,13 +158,22 @@ class Processor:
         self._update_page(page_id, document, path)
 
     @abstractmethod
-    def _synchronize_tree(self, root: DocumentNode, root_id: Optional[ConfluencePageID]) -> None:
+    def _synchronize_structure(self, root: DocumentNode) -> dict[str, list[str]]:
         """
-        Creates the cross-reference index and synchronizes the directory tree structure with the Confluence page hierarchy.
+        Synchronizes directory tree structure with Confluence page hierarchy.
 
-        Creates new Confluence pages as necessary, e.g. if no page is linked in the Markdown document, or no page is found with lookup by page title.
+        :param root: Root node of the local document tree.
+        :returns: Mapping of parent page ID → list of direct child page IDs in Confluence display order.
+        """
+        ...
 
-        May update the original Markdown document to add tags to associate the document with its corresponding Confluence page.
+    @abstractmethod
+    def _synchronize_order(self, tree: DocumentNode, parent_to_children: dict[str, list[str]]) -> None:
+        """
+        Reorders child pages in Confluence to match local directory order.
+
+        :param tree: Root node of the local document tree.
+        :param parent_to_children: Mapping from parent page ID to current child page IDs (from Confluence).
         """
         ...
 
