@@ -2250,7 +2250,9 @@ class ConfluenceDocument:
         )
         if document.alignment is not None:
             converter_options.alignment = document.alignment
-        converter = ConfluenceStorageFormatConverter(converter_options, path, root_dir, site_metadata, page_metadata, kroki_server=kroki_server, user_metadata=user_metadata)
+        converter = ConfluenceStorageFormatConverter(
+            converter_options, path, root_dir, site_metadata, page_metadata, kroki_server=kroki_server, user_metadata=user_metadata
+        )
 
         # execute HTML-to-Confluence converter
         try:

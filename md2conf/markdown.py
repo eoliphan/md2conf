@@ -122,7 +122,7 @@ def _preprocess_lists(content: str) -> str:
     """
     import re
 
-    lines = content.split('\n')
+    lines = content.split("\n")
     result = []
     in_code_block = False
     code_block_indent = 0
@@ -130,7 +130,7 @@ def _preprocess_lists(content: str) -> str:
     for i, line in enumerate(lines):
         # Track code block state (fenced code blocks with ``` or ~~~)
         # Need to handle both top-level and indented code blocks
-        fence_match = re.match(r'^(\s*)(`{3,}|~{3,})', line)
+        fence_match = re.match(r"^(\s*)(`{3,}|~{3,})", line)
         if fence_match:
             if not in_code_block:
                 # Starting a code block
@@ -150,7 +150,7 @@ def _preprocess_lists(content: str) -> str:
 
         # Check if current line starts a list AT TOP LEVEL (not indented more than 3 spaces)
         # List markers: -, *, +, or numbers followed by . or )
-        is_list_start = re.match(r'^(\s{0,3})([-*+]|\d+[.)])\s', line)
+        is_list_start = re.match(r"^(\s{0,3})([-*+]|\d+[.)])\s", line)
 
         if is_list_start and i > 0:
             prev_line = lines[i - 1]
@@ -160,17 +160,15 @@ def _preprocess_lists(content: str) -> str:
             # 1. Previous line is non-blank
             # 2. Previous line is not a list item at same or less indentation
             # 3. Current line is at top level (indent <= 3)
-            prev_is_list = re.match(r'^(\s{0,3})([-*+]|\d+[.)])\s', prev_line)
+            prev_is_list = re.match(r"^(\s{0,3})([-*+]|\d+[.)])\s", prev_line)
 
-            if (prev_line.strip() and
-                (not prev_is_list or len(prev_is_list.group(1)) > indent) and
-                indent <= 3):
+            if prev_line.strip() and (not prev_is_list or len(prev_is_list.group(1)) > indent) and indent <= 3:
                 # Add blank line before this list
-                result.append('')
+                result.append("")
 
         result.append(line)
 
-    return '\n'.join(result)
+    return "\n".join(result)
 
 
 def markdown_to_html(content: str) -> str:

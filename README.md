@@ -779,7 +779,7 @@ Use the `--help` switch to get a full list of supported command-line options:
 
 ```console
 $ python3 -m md2conf --help
-usage: md2conf mdpath [OPTIONS]
+usage: md2conf [mdpath] [OPTIONS]
 
 positional arguments:
   mdpath                Path to Markdown file or directory to convert and
@@ -804,8 +804,7 @@ options:
   --deployment-type {cloud,datacenter,server}
                         Confluence deployment type. Use 'datacenter' or
                         'server' for on-premise installations, 'cloud' for
-                        Confluence Cloud. If unspecified, defaults to Cloud
-                        (REST API v2) behavior.
+                        Confluence Cloud (default: 'cloud').
   -l {debug,info,warning,error,critical}, --loglevel {debug,info,warning,error,critical}
                         Use this option to set the log verbosity.
   -r ROOT_PAGE          Root Confluence page to create new pages. If omitted,
@@ -833,19 +832,21 @@ options:
   --diagram-output-format {png,svg}
                         Format for rendering Mermaid and draw.io diagrams
                         (default: 'png').
+  --prefer-raster       Prefer PNG over SVG when both exist (default:
+                        enabled).
+  --no-prefer-raster    Use SVG files directly instead of preferring PNG
+                        equivalents.
   --heading-anchors     Place an anchor at each section heading with GitHub-
                         style same-page identifiers.
   --no-heading-anchors  Don't place an anchor at each section heading.
-  --skip-title-heading  Skip the first heading from document body when it is
-                        used as the page title (default). Does not apply if
-                        title comes from front-matter.
-  --no-skip-title-heading
-                        Keep the first heading in document body even when used
-                        as page title.
   --ignore-invalid-url  Emit a warning but otherwise ignore relative URLs that
                         point to ill-specified locations.
   --local               Write XHTML-based Confluence Storage Format files
                         locally without invoking Confluence API.
+  --skill               Generate a Claude Code skill for md2conf.
+  -o OUT_DIR, --out-dir OUT_DIR
+                        Output directory for --skill or --local mode (default:
+                        source directory).
   --headers KEY=VALUE [KEY=VALUE ...]
                         Apply custom headers to all Confluence API requests.
   --webui-links         Enable Confluence Web UI links. (Typically required
@@ -855,10 +856,30 @@ options:
                         (default: 'center').
   --use-panel           Transform admonitions and alerts into a Confluence
                         custom panel.
+  --render-kroki        Render Kroki-supported diagrams using a Docker-managed
+                        Kroki server (default: enabled).
+  --no-render-kroki     Disable Kroki diagram rendering; unsupported diagram
+                        types will be emitted as code blocks.
+  --kroki-image KROKI_IMAGE
+                        Docker image for the Kroki server (default:
+                        'yuzutech/kroki').
+  --skip-title-heading  Skip the first heading from document body when it is
+                        used as the page title (default). Does not apply if
+                        title comes from front-matter.
+  --no-skip-title-heading
+                        Keep the first heading in document body even when used
+                        as page title.
   --max-image-width MAX_IMAGE_WIDTH
-                       Maximum display width for images in pixels. Images
-                       wider than this will be scaled down for display while
-                       preserving the original size for full-size viewing.
+                        Maximum display width for images in pixels. Images
+                        wider than this will be scaled down for display while
+                        preserving the original size for full-size viewing.
+  --pass-through-languages
+                        Pass through unsupported code block languages to
+                        Confluence instead of replacing with 'none'.
+  --user-mentions       Resolve email-link syntax (@[Name](mailto:email)) to
+                        Confluence user mentions (default: enabled).
+  --no-user-mentions    Render email links as regular links instead of
+                        Confluence user mentions.
 ```
 
 ### Confluence REST API v1 vs. v2

@@ -221,8 +221,8 @@ class TestKrokiFencedCodeBlocks(unittest.TestCase):
 class TestKrokiFileReferences(unittest.TestCase):
     def test_puml_file_dispatches_to_kroki(self) -> None:
         """A .puml image reference should render via Kroki."""
-        from md2conf.converter import ConfluenceDocument
         from md2conf.collection import ConfluencePageCollection
+        from md2conf.converter import ConfluenceDocument
         from md2conf.metadata import ConfluenceSiteMetadata
 
         test_dir = Path(__file__).parent / "source"
@@ -244,8 +244,8 @@ class TestKrokiFileReferences(unittest.TestCase):
 
     def test_puml_file_kroki_unavailable_fallback(self) -> None:
         """A .puml file with Kroki unavailable should not crash."""
-        from md2conf.converter import ConfluenceDocument
         from md2conf.collection import ConfluencePageCollection
+        from md2conf.converter import ConfluenceDocument
         from md2conf.metadata import ConfluenceSiteMetadata
 
         test_dir = Path(__file__).parent / "source"
@@ -266,8 +266,8 @@ class TestKrokiFileReferences(unittest.TestCase):
 class TestMermaidFallback(unittest.TestCase):
     def test_mermaid_not_dispatched_to_kroki(self) -> None:
         """Mermaid should use existing handler, not Kroki, even when Kroki is available."""
-        from md2conf.converter import ConfluenceDocument
         from md2conf.collection import ConfluencePageCollection
+        from md2conf.converter import ConfluenceDocument
         from md2conf.metadata import ConfluenceSiteMetadata
 
         test_dir = Path(__file__).parent / "source"
