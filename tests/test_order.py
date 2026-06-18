@@ -71,3 +71,59 @@ class TestSortItemsInOrder(unittest.TestCase):
         target = ["a", "b", "c", "d"]
         self._run(items, target)
         self.assertEqual(items, target)
+
+
+class TestSortItemsInOrderBehavior(unittest.TestCase):
+    def test_foreign_pages_not_moved(self) -> None:
+        """
+        Pages not in the local managed set should be ignored during sort.
+        This is a behavioral test of how sort_items_in_order is called
+        with pre-filtered input (foreign pages removed before calling).
+        """
+        remote_order = ["pageA", "pageB", "pageC"]  # foreign already filtered
+        local_order = ["pageA", "pageB", "pageC"]
+
+        before_calls: list[tuple[str, str]] = []
+        after_calls: list[tuple[str, str]] = []
+
+        sort_items_in_order(
+            remote_order,
+            key=lambda x: local_order.index(x),
+            insert_before=lambda a, b: before_calls.append((a, b)),
+            insert_after=lambda a, b: after_calls.append((a, b)),
+        )
+
+        self.assertEqual(before_calls, [])
+        self.assertEqual(after_calls, [])
+
+    def test_two_items_swapped(self) -> None:
+        remote_order = ["pageB", "pageA"]
+        local_order = ["pageA", "pageB"]
+
+        before_calls: list[tuple[str, str]] = []
+        after_calls: list[tuple[str, str]] = []
+
+        sort_items_in_order(
+            remote_order,
+            key=lambda x: local_order.index(x),
+            insert_before=lambda a, b: before_calls.append((a, b)),
+            insert_after=lambda a, b: after_calls.append((a, b)),
+        )
+
+        total_moves = len(before_calls) + len(after_calls)
+        self.assertEqual(total_moves, 1)
+
+    def test_empty_remote_order_no_calls(self) -> None:
+        local_order = ["pageA", "pageB"]
+        before_calls: list[tuple[str, str]] = []
+        after_calls: list[tuple[str, str]] = []
+
+        sort_items_in_order(
+            [],
+            key=lambda x: local_order.index(x),
+            insert_before=lambda a, b: before_calls.append((a, b)),
+            insert_after=lambda a, b: after_calls.append((a, b)),
+        )
+
+        self.assertEqual(before_calls, [])
+        self.assertEqual(after_calls, [])
