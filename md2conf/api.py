@@ -391,6 +391,22 @@ class ConfluenceUpdateAttachmentRequest:
     version: ConfluenceContentVersion
 
 
+@dataclass(frozen=True)
+class ConfluenceUser:
+    """
+    Represents a Confluence user resolved for a mention.
+
+    :param email: User's email address (may be None if not exposed by the API).
+    :param csf_attr: The ``ri:*`` attribute name for the CSF mention element,
+        e.g. ``"ri:account-id"`` (Cloud) or ``"ri:username"`` (Data Center).
+    :param csf_value: The attribute value, e.g. an account ID or login username.
+    """
+
+    email: Optional[str]
+    csf_attr: str
+    csf_value: str
+
+
 class TruststoreAdapter(HTTPAdapter):
     """
     Provides a general-case interface for HTTPS sessions to connect to HTTPS URLs.
@@ -1177,6 +1193,53 @@ class ConfluenceSession:
         """
 
         return self.get_page_properties(page_id).version.number
+
+    def _get_users_v1(self, name: str) -> list["ConfluenceUser"]:
+        """
+        Searches for users by display name substring via the Data Center REST API.
+
+        v1 endpoint: GET /rest/api/user/search?username={name}
+        """
+        results = self._fetch_v1("/user/search", {"username": name})
+        users: list[ConfluenceUser] = []
+        for item in results:
+            data = typing.cast(dict[str, JsonType], item)
+            email = typing.cast(Optional[str], data.get("emailAddress"))
+            login_name = typing.cast(Optional[str], data.get("name"))
+            if login_name is not None:
+                users.append(ConfluenceUser(email=email, csf_attr="ri:username", csf_value=login_name))
+        return users
+
+    def _get_users_v2(self, name: str) -> list["ConfluenceUser"]:
+        """
+        Searches for users by display name substring via the Confluence Cloud REST API.
+
+        Uses the v1-style REST path (still valid on Cloud): GET /rest/api/user/search?query={name}
+        """
+        url = self._build_url(ConfluenceVersion.VERSION_1, "/user/search", {"query": name, "limit": "10"})
+        response = _retry_request(self.session.get, url, headers={"Accept": "application/json"}, verify=True)
+        response.raise_for_status()
+        results = typing.cast(list[JsonType], response.json())
+        users: list[ConfluenceUser] = []
+        for item in results:
+            data = typing.cast(dict[str, JsonType], item)
+            email = typing.cast(Optional[str], data.get("email"))
+            account_id = typing.cast(Optional[str], data.get("accountId"))
+            if account_id is not None:
+                users.append(ConfluenceUser(email=email, csf_attr="ri:account-id", csf_value=account_id))
+        return users
+
+    def get_users(self, name: str) -> list["ConfluenceUser"]:
+        """
+        Searches for users matching a display name substring.
+
+        :param name: Display name (or substring) to search for.
+        :returns: List of matching ``ConfluenceUser`` objects.
+        """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_users_v1(name)
+        else:
+            return self._get_users_v2(name)
 
     def _update_page_v1(
         self,
