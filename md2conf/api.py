@@ -1402,6 +1402,136 @@ class ConfluenceSession:
             LOGGER.error("Response body: %s", response.text)
         response.raise_for_status()
 
+    def _get_child_page_ids_v1(self, parent_id: str) -> list[str]:
+        """
+        Returns child page IDs in Confluence display order (Data Center v1 API).
+
+        v1: GET /rest/api/content/{parent_id}/child/page?limit=250
+        """
+        try:
+            results = self._fetch_v1(f"/content/{parent_id}/child/page", {"limit": "250"})
+            page_ids: list[str] = []
+            for item in results:
+                data = typing.cast(dict[str, JsonType], item)
+                page_id = typing.cast(Optional[str], data.get("id"))
+                if page_id is not None:
+                    page_ids.append(page_id)
+            return page_ids
+        except Exception as e:
+            LOGGER.warning("Failed to fetch child page IDs for parent %s: %s", parent_id, e)
+            return []
+
+    def _get_child_page_ids_v2(self, parent_id: str) -> list[str]:
+        """
+        Returns child page IDs in Confluence display order (Cloud v2 API).
+
+        v2: GET /wiki/api/v2/pages/{parent_id}/children?limit=250&sort=child-position
+        """
+        try:
+            results = self._fetch_v2(f"/pages/{parent_id}/children", {"limit": "250", "sort": "child-position"})
+            page_ids: list[str] = []
+            for item in results:
+                data = typing.cast(dict[str, JsonType], item)
+                page_id = typing.cast(Optional[str], data.get("id"))
+                if page_id is not None:
+                    page_ids.append(page_id)
+            return page_ids
+        except Exception as e:
+            LOGGER.warning("Failed to fetch child page IDs for parent %s: %s", parent_id, e)
+            return []
+
+    def get_child_page_ids(self, parent_id: str) -> list[str]:
+        """
+        Returns the page IDs of direct child pages in their current Confluence display order.
+
+        Returns an empty list if the parent has no children or on API failure (fail-safe).
+
+        :param parent_id: Confluence page ID of the parent page.
+        :returns: Ordered list of child page IDs.
+        """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_child_page_ids_v1(parent_id)
+        else:
+            return self._get_child_page_ids_v2(parent_id)
+
+    def _move_page_before_sibling_v1(self, page_id: str, ref_id: str) -> None:
+        """
+        Moves page immediately before ref_id (Data Center v1 API).
+
+        v1: PUT /rest/api/content/{pageId}/move/before/{refId}
+        """
+        url = self._build_url(ConfluenceVersion.VERSION_1, f"/content/{page_id}/move/before/{ref_id}")
+        response = _retry_request(self.session.put, url, headers={"Accept": "application/json"}, verify=True)
+        response.raise_for_status()
+
+    def _move_page_before_sibling_v2(self, page_id: str, ref_id: str) -> None:
+        """
+        Moves page immediately before ref_id (Cloud v2 API).
+
+        v2: PUT /wiki/api/v2/pages/{pageId}/move  body: {"position": "before", "targetId": ref_id}
+        """
+        url = self._build_url(ConfluenceVersion.VERSION_2, f"/pages/{page_id}/move")
+        response = _retry_request(
+            self.session.put,
+            url,
+            json={"position": "before", "targetId": ref_id},
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            verify=True,
+        )
+        response.raise_for_status()
+
+    def move_page_before_sibling(self, page_id: str, ref_id: str) -> None:
+        """
+        Moves ``page_id`` to appear immediately before ``ref_id`` (same parent).
+
+        :param page_id: Confluence page ID to move.
+        :param ref_id: Confluence page ID of the reference page; ``page_id`` will appear before it.
+        """
+        LOGGER.info("Moving page %s before sibling %s", page_id, ref_id)
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            self._move_page_before_sibling_v1(page_id, ref_id)
+        else:
+            self._move_page_before_sibling_v2(page_id, ref_id)
+
+    def _move_page_after_sibling_v1(self, page_id: str, ref_id: str) -> None:
+        """
+        Moves page immediately after ref_id (Data Center v1 API).
+
+        v1: PUT /rest/api/content/{pageId}/move/after/{refId}
+        """
+        url = self._build_url(ConfluenceVersion.VERSION_1, f"/content/{page_id}/move/after/{ref_id}")
+        response = _retry_request(self.session.put, url, headers={"Accept": "application/json"}, verify=True)
+        response.raise_for_status()
+
+    def _move_page_after_sibling_v2(self, page_id: str, ref_id: str) -> None:
+        """
+        Moves page immediately after ref_id (Cloud v2 API).
+
+        v2: PUT /wiki/api/v2/pages/{pageId}/move  body: {"position": "after", "targetId": ref_id}
+        """
+        url = self._build_url(ConfluenceVersion.VERSION_2, f"/pages/{page_id}/move")
+        response = _retry_request(
+            self.session.put,
+            url,
+            json={"position": "after", "targetId": ref_id},
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            verify=True,
+        )
+        response.raise_for_status()
+
+    def move_page_after_sibling(self, page_id: str, ref_id: str) -> None:
+        """
+        Moves ``page_id`` to appear immediately after ``ref_id`` (same parent).
+
+        :param page_id: Confluence page ID to move.
+        :param ref_id: Confluence page ID of the reference page; ``page_id`` will appear after it.
+        """
+        LOGGER.info("Moving page %s after sibling %s", page_id, ref_id)
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            self._move_page_after_sibling_v1(page_id, ref_id)
+        else:
+            self._move_page_after_sibling_v2(page_id, ref_id)
+
     def _create_page_v1(
         self,
         parent_id: str,
