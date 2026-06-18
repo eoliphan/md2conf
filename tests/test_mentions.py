@@ -1,5 +1,6 @@
 import unittest
 from md2conf.text import user_references
+from md2conf.collection import ConfluenceUserCollection
 
 
 class TestUserReferences(unittest.TestCase):
@@ -25,3 +26,21 @@ class TestUserReferences(unittest.TestCase):
     def test_deduplicates(self) -> None:
         text = "[Alice](mailto:alice@example.com) and [Alice](mailto:alice@example.com)"
         self.assertEqual(len(user_references(text)), 1)
+
+
+class TestConfluenceUserCollection(unittest.TestCase):
+    def test_add_and_get(self) -> None:
+        col: ConfluenceUserCollection = ConfluenceUserCollection()
+        col.add("alice@example.com", ("ri:account-id", "557058:abc"))
+        result = col.get("alice@example.com")
+        self.assertEqual(result, ("ri:account-id", "557058:abc"))
+
+    def test_get_missing_returns_none(self) -> None:
+        col: ConfluenceUserCollection = ConfluenceUserCollection()
+        self.assertIsNone(col.get("nobody@example.com"))
+
+    def test_contains(self) -> None:
+        col: ConfluenceUserCollection = ConfluenceUserCollection()
+        col.add("alice@example.com", ("ri:account-id", "557058:abc"))
+        self.assertIn("alice@example.com", col)
+        self.assertNotIn("bob@example.com", col)
