@@ -24,7 +24,7 @@ class KeyValueCollection(Generic[K, V]):
     def __len__(self) -> int:
         return len(self._collection)
 
-    def __contains__(self, key: K) -> bool:
+    def __contains__(self, key: object) -> bool:
         return key in self._collection
 
     def add(self, key: K, data: V) -> None:

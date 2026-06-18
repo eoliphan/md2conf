@@ -1,6 +1,7 @@
 import unittest
-from md2conf.text import user_references
+
 from md2conf.collection import ConfluenceUserCollection
+from md2conf.text import user_references
 
 
 class TestUserReferences(unittest.TestCase):
