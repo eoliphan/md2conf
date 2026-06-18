@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from .collection import ConfluenceUserCollection
 from .converter import ConfluenceDocument
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
 from .extra import override
@@ -73,6 +74,10 @@ class LocalProcessor(Processor):
                     synchronized=node.synchronized,
                 ),
             )
+
+    @override
+    def _synchronize_users(self, users: set[tuple[str, str]]) -> ConfluenceUserCollection:
+        return ConfluenceUserCollection()
 
     @override
     def _update_page(self, page_id: ConfluencePageID, document: ConfluenceDocument, path: Path) -> None:

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from .api import ConfluenceContentProperty, ConfluenceLabel, ConfluenceSession, ConfluenceStatus
+from .collection import ConfluenceUserCollection
 from .converter import ConfluenceDocument, attachment_name, get_volatile_attributes, get_volatile_elements
 from .csf import AC_ATTR, elements_from_string
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
@@ -129,6 +130,21 @@ class SynchronizingProcessor(Processor):
 
         for child_node in node.children():
             self._synchronize_subtree(child_node, ConfluencePageID(page.id))
+
+    @override
+    def _synchronize_users(self, users: set[tuple[str, str]]) -> ConfluenceUserCollection:
+        collection = ConfluenceUserCollection()
+        for email, name in users:
+            if email in collection:
+                continue
+            matches = self.api.get_users(name)
+            for user in matches:
+                if user.email is not None and user.email.casefold() == email.casefold():
+                    collection.add(email, (user.csf_attr, user.csf_value))
+                    break
+            else:
+                LOGGER.warning("User not found in Confluence: %s <%s>", name, email)
+        return collection
 
     @override
     def _update_page(self, page_id: ConfluencePageID, document: ConfluenceDocument, path: Path) -> None:
