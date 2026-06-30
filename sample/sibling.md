@@ -1,5 +1,6 @@
 ---
 title: "Markdown example document"
+page_id: "1998850"
 tags:
   - markdown
   - confluence
@@ -13,6 +14,7 @@ properties:
   content-appearance-draft: full-width
 ---
 
+<!-- generated-by: This page has been generated with md2conf. -->
 
 
 
