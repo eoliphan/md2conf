@@ -1499,7 +1499,9 @@ class ConfluenceSession:
                 self._move_page_before_sibling_v2(page_id, ref_id)
         except requests.exceptions.RequestException as e:
             LOGGER.warning(
-                "Failed to move page %s before sibling %s, skipping reorder for this pair: %s",
+                "Failed to move page %s before sibling %s; skipping this move, but later sibling "
+                "reorders in this run may now be computed against a stale position and self-heal "
+                "on the next sync: %s",
                 page_id,
                 ref_id,
                 e,
@@ -1550,7 +1552,9 @@ class ConfluenceSession:
                 self._move_page_after_sibling_v2(page_id, ref_id)
         except requests.exceptions.RequestException as e:
             LOGGER.warning(
-                "Failed to move page %s after sibling %s, skipping reorder for this pair: %s",
+                "Failed to move page %s after sibling %s; skipping this move, but later sibling "
+                "reorders in this run may now be computed against a stale position and self-heal "
+                "on the next sync: %s",
                 page_id,
                 ref_id,
                 e,
