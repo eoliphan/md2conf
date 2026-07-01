@@ -10,10 +10,11 @@ import logging
 import shutil
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from md2conf.domain import ConfluenceDocumentOptions, ConfluencePageID
 from md2conf.extra import override
-from md2conf.local import LocalConverter
+from md2conf.local import LocalConverter, LocalProcessor
 from md2conf.metadata import ConfluenceSiteMetadata
 from tests.utility import TypedTestCase
 
@@ -54,6 +55,24 @@ class TestProcessor(TypedTestCase):
 
         self.assertTrue((self.out_dir / "code.csf").exists())
         self.assertFalse((self.sample_dir / "code.csf").exists())
+
+    def test_content_sync_continues_when_order_sync_fails(self) -> None:
+        options = ConfluenceDocumentOptions(
+            root_page_id=ConfluencePageID("ROOT_PAGE_ID"),
+        )
+        converter = self.create_converter(options)
+
+        # `LocalConverter.process()` delegates to a fresh `LocalProcessor` instance created by its
+        # factory, so the failure must be injected on the `LocalProcessor` class (where
+        # `_synchronize_order` is actually invoked from `_process_items`), not on the `converter`
+        # object itself.
+        with patch.object(LocalProcessor, "_synchronize_order", side_effect=RuntimeError("simulated order sync failure")):
+            converter.process(self.sample_dir)  # must not raise
+
+        self.assertTrue((self.out_dir / "index.csf").exists())
+        self.assertTrue((self.out_dir / "sibling.csf").exists())
+        self.assertTrue((self.out_dir / "code.csf").exists())
+        self.assertTrue((self.out_dir / "parent" / "child.csf").exists())
 
     def test_process_directory(self) -> None:
         options = ConfluenceDocumentOptions(

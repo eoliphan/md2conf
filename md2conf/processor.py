@@ -142,7 +142,13 @@ class Processor:
                 users.update(node.users)
             self.user_metadata = self._synchronize_users(users)
 
-        self._synchronize_order(root, parent_to_children)
+        try:
+            self._synchronize_order(root, parent_to_children)
+        except Exception as e:
+            LOGGER.error(
+                "Page order synchronization failed, skipping remaining reorder and continuing with content sync: %s",
+                e,
+            )
 
         # synchronize files in directory hierarchy with pages in space
         for path, metadata in self.page_metadata.items():
