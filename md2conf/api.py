@@ -1484,14 +1484,26 @@ class ConfluenceSession:
         """
         Moves ``page_id`` to appear immediately before ``ref_id`` (same parent).
 
+        Page ordering is best-effort: if the move request fails, this logs a warning
+        and returns rather than raising, so that content synchronization is not blocked
+        by a page-ordering failure.
+
         :param page_id: Confluence page ID to move.
         :param ref_id: Confluence page ID of the reference page; ``page_id`` will appear before it.
         """
         LOGGER.info("Moving page %s before sibling %s", page_id, ref_id)
-        if self.api_version == ConfluenceVersion.VERSION_1:
-            self._move_page_before_sibling_v1(page_id, ref_id)
-        else:
-            self._move_page_before_sibling_v2(page_id, ref_id)
+        try:
+            if self.api_version == ConfluenceVersion.VERSION_1:
+                self._move_page_before_sibling_v1(page_id, ref_id)
+            else:
+                self._move_page_before_sibling_v2(page_id, ref_id)
+        except requests.exceptions.RequestException as e:
+            LOGGER.warning(
+                "Failed to move page %s before sibling %s, skipping reorder for this pair: %s",
+                page_id,
+                ref_id,
+                e,
+            )
 
     def _move_page_after_sibling_v1(self, page_id: str, ref_id: str) -> None:
         """
@@ -1523,14 +1535,26 @@ class ConfluenceSession:
         """
         Moves ``page_id`` to appear immediately after ``ref_id`` (same parent).
 
+        Page ordering is best-effort: if the move request fails, this logs a warning
+        and returns rather than raising, so that content synchronization is not blocked
+        by a page-ordering failure.
+
         :param page_id: Confluence page ID to move.
         :param ref_id: Confluence page ID of the reference page; ``page_id`` will appear after it.
         """
         LOGGER.info("Moving page %s after sibling %s", page_id, ref_id)
-        if self.api_version == ConfluenceVersion.VERSION_1:
-            self._move_page_after_sibling_v1(page_id, ref_id)
-        else:
-            self._move_page_after_sibling_v2(page_id, ref_id)
+        try:
+            if self.api_version == ConfluenceVersion.VERSION_1:
+                self._move_page_after_sibling_v1(page_id, ref_id)
+            else:
+                self._move_page_after_sibling_v2(page_id, ref_id)
+        except requests.exceptions.RequestException as e:
+            LOGGER.warning(
+                "Failed to move page %s after sibling %s, skipping reorder for this pair: %s",
+                page_id,
+                ref_id,
+                e,
+            )
 
     def _create_page_v1(
         self,
