@@ -127,3 +127,23 @@ class TestSortItemsInOrderBehavior(unittest.TestCase):
 
         self.assertEqual(before_calls, [])
         self.assertEqual(after_calls, [])
+
+    def test_insert_callback_failure_propagates(self) -> None:
+        """
+        sort_items_in_order does not catch exceptions from insert_before/insert_after.
+        Resilience to a failed move is the caller's responsibility (see api.py
+        move_page_before_sibling / move_page_after_sibling), not this function's.
+        """
+        remote_order = ["pageB", "pageA"]
+        local_order = ["pageA", "pageB"]
+
+        def _raise(item: str, ref: str) -> None:
+            raise RuntimeError("simulated move failure")
+
+        with self.assertRaises(RuntimeError):
+            sort_items_in_order(
+                remote_order,
+                key=lambda x: local_order.index(x),
+                insert_before=_raise,
+                insert_after=_raise,
+            )
