@@ -117,8 +117,10 @@ matching `converter.py:952-959`. Without it, `<!-- macro:embed_html: ../../../et
 or a symlink would let any file readable by the publishing process be inlined into a
 Confluence page — a local-file disclosure primitive. This is **not** deferred.
 
-If no context is supplied (e.g. a direct `expand_macros(text)` call), the expander falls
-back to `Path.cwd()` with no bounds check.
+Because the bounds check is what makes this safe, it is **mandatory**: if no context is
+supplied (e.g. a direct `expand_macros(text)` call), `embed_html` refuses to expand
+rather than falling back to `Path.cwd()` unchecked. Absolute paths are likewise rejected
+outright, since joining an absolute path discards `base_dir` entirely.
 
 ## Threading design
 

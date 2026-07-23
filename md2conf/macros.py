@@ -324,7 +324,7 @@ def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> st
     body = (
         f'<iframe id="{frame_id}" style="width:{width};height:{height};border:0" loading="lazy" title="{title}"></iframe>'
         f'<script>(function(){{var s=document.currentScript;var b="{payload}";'
-        f'var e=s?s.previousElementSibling:document.getElementById("{frame_id}");'
+        f'var e=(s&&s.previousElementSibling)||document.getElementById("{frame_id}");'
         f"e.srcdoc=new TextDecoder().decode(Uint8Array.from(atob(b),function(c){{return c.charCodeAt(0)}}));}})();</script>"
     )
 

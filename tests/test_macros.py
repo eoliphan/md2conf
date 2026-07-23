@@ -36,8 +36,16 @@ def extract_payload(result: str) -> bytes:
     match = re.search(r'var b="([A-Za-z0-9+/=]*)"', result)
     if match is None:
         raise AssertionError(f"no base64 payload found in: {result[:200]}")
-    # strict, because a browser's atob() rejects what Python would otherwise tolerate
-    return base64.b64decode(match.group(1), validate=True)
+
+    encoded = match.group(1)
+    decoded = base64.b64decode(encoded, validate=True)
+
+    # `b64decode` tolerates non-canonical input that a browser's `atob()` rejects (for
+    # example "AAAA="), so require the payload to be exactly what `b64encode` produces
+    if base64.b64encode(decoded).decode("ascii") != encoded:
+        raise AssertionError("payload is not canonical base64 and would be rejected by atob()")
+
+    return decoded
 
 
 class TestEmbedHtmlMacro(TypedTestCase):
@@ -287,7 +295,9 @@ class TestEmbedHtmlMacro(TypedTestCase):
         result = self.expand("page.html")
 
         self.assertIn("document.currentScript", result)
-        self.assertIn("previousElementSibling", result)
+        # the id lookup remains as a fallback for environments without `currentScript`,
+        # and is also reached when `previousElementSibling` is null
+        self.assertIn('(s&&s.previousElementSibling)||document.getElementById("mdc-embed-', result)
 
     def test_invalid_dimensions_fall_back_to_defaults(self) -> None:
         self.write("page.html", b"<html></html>")
@@ -304,7 +314,14 @@ class TestEmbedHtmlMacro(TypedTestCase):
         self.assertIn("&amp;", result)
         self.assertNotIn("a'b", result)
 
-    def test_title_cannot_break_out_of_carrier_or_cdata(self) -> None:
+    def test_title_is_neutralized_in_the_generated_body(self) -> None:
+        """
+        Escaping the title keeps `-->` and `]]>` out of the generated body.
+
+        This covers the expander's own output. The macro *invocation* is a separate
+        matter -- see `test_arrow_in_parameters_truncates_the_invocation`.
+        """
+
         self.write("page.html", b"<html></html>")
         result = self.expand("page.html, title=x --> y ]]> z")
 
@@ -445,6 +462,21 @@ class TestMacroExpanderContext(TypedTestCase):
 
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0], context)
+
+    def test_arrow_in_parameters_truncates_the_invocation(self) -> None:
+        """
+        Pins a known limitation of the HTML-comment macro carrier.
+
+        `<!-- macro:NAME: ... -->` ends at the first `-->`, so no macro parameter can
+        contain that sequence. This is inherent to the carrier syntax and shared by every
+        macro, not specific to `embed_html`. Documented in the README rather than fixed;
+        this test exists so the behaviour cannot change unnoticed.
+        """
+
+        text = "<!-- macro:embed_html: page.html, title=x --> y -->"
+        result = expand_macros(text)
+
+        self.assertIn(" y -->", result, "trailing text after the first --> is left behind")
 
     def test_unknown_macro_is_left_unchanged(self) -> None:
         expander = MacroExpander()
