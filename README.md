@@ -536,6 +536,35 @@ Warning <!-- macro:emoticon: warning --> about deprecated feature.
 **Parameters:**
 - `name` (required): Emoticon name (`tick`, `cross`, `warning`, `info`, `thumbs-up`, etc.)
 
+#### Embed HTML Macro
+
+The embed HTML macro inlines a self-contained HTML file and renders it *live* on the Confluence page, inside an iframe:
+
+```markdown
+<!-- macro:embed_html: reports/explorer.html -->
+
+<!-- macro:embed_html: explorer.html, height=1400px, width=90%, title=Traceability Explorer -->
+```
+
+**Syntax:** `<!-- macro:embed_html: path -->` or `<!-- macro:embed_html: path, height=..., width=..., title=... -->`
+
+**Parameters:**
+
+- `path` (required): Path to the HTML file, resolved **relative to the directory of the Markdown file** containing the macro (the same way image and attachment paths resolve). The file must reside within the documentation root.
+- `height` (optional): CSS length for the iframe height; defaults to `1040px`.
+- `width` (optional): CSS length for the iframe width; defaults to `100%`.
+- `title` (optional): Accessible title for the iframe; defaults to `Embedded HTML`.
+
+`height` and `width` accept a number followed by `px`, `em`, `rem`, `%`, `vh` or `vw`; any other value is ignored with a warning and the default is used.
+
+**Requirements and caveats:**
+
+- The target Confluence instance must have the **HTML macro enabled** (it is disabled by default on Confluence Cloud, and is an administrator-controlled feature on Data Center/Server).
+- The HTML file should be **self-contained** — inline CSS and JavaScript, no external asset references — because only the file itself is embedded.
+- The file is embedded base64-encoded, so it adds roughly 4/3 of its size to the page. A warning is logged above 5 MB.
+- The iframe is deliberately **not** sandboxed, so the embedded document's inline scripts run. Only embed HTML you trust.
+- If the file is missing, unreadable, or outside the documentation root, a warning is logged and the macro invocation is left unexpanded rather than failing the build.
+
 #### Using Macros in Tables
 
 Macros work seamlessly in table cells:
