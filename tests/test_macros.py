@@ -11,9 +11,11 @@ import logging
 import re
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from typing import Optional
 
+from md2conf import macros
 from md2conf.macros import (
     MacroContext,
     MacroExpander,
@@ -34,7 +36,8 @@ def extract_payload(result: str) -> bytes:
     match = re.search(r'var b="([A-Za-z0-9+/=]*)"', result)
     if match is None:
         raise AssertionError(f"no base64 payload found in: {result[:200]}")
-    return base64.b64decode(match.group(1))
+    # strict, because a browser's atob() rejects what Python would otherwise tolerate
+    return base64.b64decode(match.group(1), validate=True)
 
 
 class TestEmbedHtmlMacro(TypedTestCase):
@@ -147,13 +150,32 @@ class TestEmbedHtmlMacro(TypedTestCase):
         self.assertNotIn("\x0c", result)
         self.assertEqual(extract_payload(result), content)
 
-    def test_invalid_utf8_bytes_do_not_raise(self) -> None:
-        "The file is read as bytes, so undecodable content must still embed."
+    def test_invalid_utf8_bytes_transport_intact_but_are_warned_about(self) -> None:
+        """
+        The file is read as bytes, so undecodable content still embeds.
+
+        The browser-side decoder is UTF-8 in replacement mode, so such a file renders as
+        U+FFFD rather than its original bytes. Transport fidelity is asserted here; the
+        rendering caveat is surfaced as a warning rather than silently accepted.
+        """
 
         content = b"<html>\xff\xfe</html>"
         self.write("page.html", content)
 
-        self.assertEqual(extract_payload(self.expand("page.html")), content)
+        with self.assertLogs("md2conf.macros", level="WARNING") as captured:
+            result = self.expand("page.html")
+
+        self.assertEqual(extract_payload(result), content)
+        self.assertTrue(any("not valid UTF-8" in message for message in captured.output))
+
+    def test_valid_utf8_does_not_warn(self) -> None:
+        self.write("page.html", "<html><body>café — naïve</body></html>".encode("utf-8"))
+
+        # `assertNoLogs` requires Python 3.10; this package supports 3.9
+        with unittest.mock.patch.object(macros.LOGGER, "warning") as warning:
+            self.expand("page.html")
+
+        self.assertListEqual([str(call) for call in warning.call_args_list], [])
 
     def test_ampersand_and_quote_in_payload_are_preserved(self) -> None:
         content = b"""<html><body>a &amp; b, it's here & "quoted"</body></html>"""
@@ -174,16 +196,45 @@ class TestEmbedHtmlMacro(TypedTestCase):
     def test_path_outside_root_dir_is_refused(self) -> None:
         "Otherwise any readable file could be inlined into a Confluence page."
 
-        nested = self.root_dir / "docs"
-        nested.mkdir()
-        secret = self.root_dir.parent / "secret.html"
-        secret.write_bytes(b"<html>secret</html>")
-        self.addCleanup(secret.unlink)
+        # every artifact stays inside the temporary directory this test owns
+        docs = self.root_dir / "docs"
+        docs.mkdir()
+        (self.root_dir / "secret.html").write_bytes(b"<html>secret</html>")
 
-        context = MacroContext(base_dir=nested, root_dir=nested)
+        context = MacroContext(base_dir=docs, root_dir=docs)
         result = expand_embed_html("../secret.html", context)
 
         self.assertEqual(result, "<!-- macro:embed_html: ../secret.html -->")
+
+    def test_symlink_escaping_root_dir_is_refused(self) -> None:
+        docs = self.root_dir / "docs"
+        docs.mkdir()
+        (self.root_dir / "secret.html").write_bytes(b"<html>secret</html>")
+        (docs / "link.html").symlink_to(self.root_dir / "secret.html")
+
+        result = expand_embed_html("link.html", MacroContext(base_dir=docs, root_dir=docs))
+
+        self.assertEqual(result, "<!-- macro:embed_html: link.html -->")
+
+    def test_absolute_path_is_refused(self) -> None:
+        "Joining an absolute path discards base_dir, so it must be rejected outright."
+
+        secret = self.root_dir / "secret.html"
+        secret.write_bytes(b"<html>secret</html>")
+
+        result = self.expand(str(secret))
+
+        self.assertEqual(result, f"<!-- macro:embed_html: {secret} -->")
+
+    def test_without_context_nothing_is_read(self) -> None:
+        "The containment check needs a context; without one the macro must refuse."
+
+        readable = self.root_dir / "page.html"
+        readable.write_bytes(b"<html>readable</html>")
+
+        result = expand_embed_html(str(readable), None)
+
+        self.assertEqual(result, f"<!-- macro:embed_html: {readable} -->")
 
     def test_directory_instead_of_file_returns_original_text(self) -> None:
         (self.base_dir / "subdir").mkdir()
@@ -215,6 +266,29 @@ class TestEmbedHtmlMacro(TypedTestCase):
         self.assertEqual(extract_payload(result), content)
         self.assertIn("height:200px", result)
 
+    def test_named_parameters_are_case_insensitive(self) -> None:
+        "The path/parameter split is case-insensitive, so the lookup must match."
+
+        self.write("page.html", b"<html></html>")
+        result = self.expand("page.html, HEIGHT=200px, Width=80%")
+
+        self.assertIn("width:80%;height:200px", result)
+
+    def test_quoted_path_is_unquoted_once(self) -> None:
+        content = b"<html>quoted</html>"
+        self.write("page.html", content)
+
+        self.assertEqual(extract_payload(self.expand('"page.html"')), content)
+
+    def test_locates_frame_via_current_script(self) -> None:
+        "Two embeds of the same file share a payload hash, so the id alone is not enough."
+
+        self.write("page.html", b"<html></html>")
+        result = self.expand("page.html")
+
+        self.assertIn("document.currentScript", result)
+        self.assertIn("previousElementSibling", result)
+
     def test_invalid_dimensions_fall_back_to_defaults(self) -> None:
         self.write("page.html", b"<html></html>")
         result = self.expand("page.html, height=drop table, width=100%' onload='alert(1)")
@@ -244,7 +318,7 @@ class TestEmbedHtmlMacro(TypedTestCase):
 
         self.assertNotIn("sandbox", self.expand("page.html"))
 
-    def test_falls_back_to_cwd_without_context(self) -> None:
+    def test_relative_path_without_context_is_refused(self) -> None:
         self.assertEqual(
             expand_embed_html("definitely-not-here.html", None),
             "<!-- macro:embed_html: definitely-not-here.html -->",

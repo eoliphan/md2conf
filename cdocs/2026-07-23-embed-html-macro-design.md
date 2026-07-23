@@ -237,6 +237,41 @@ must contain no 36-character hex-ish run, because `standardize()` rewrites those
 
 **Gate** — full `pytest` suite plus `ruff check` and `ruff format --check` green.
 
+## Hardening from the implementation review
+
+A second adversarial review of the implementation confirmed the base64 transport claim
+("all three prior payload-corruption blockers are neutralized") and found further
+defects, all since fixed:
+
+- **Non-UTF-8 files rendered as `U+FFFD`.** The bytes transport intact, but the
+  browser-side `TextDecoder` defaults to UTF-8 in replacement mode. The file is now
+  validated as UTF-8 at expansion time and a warning is logged; the test that claimed
+  "invalid UTF-8 embeds fine" was overclaiming and now asserts the warning instead.
+- **Duplicate embeds left the second iframe blank.** The frame id derived only from the
+  payload hash, so embedding the same file twice made both shims target the first
+  iframe via `getElementById`. The shim now locates its frame with
+  `document.currentScript.previousElementSibling`, falling back to the id.
+- **Contextless absolute paths bypassed containment.** `Path("/a") / "/etc/hosts"`
+  discards the base, and `root_dir` was optional, so `expand_macros(text)` with no
+  context could read any readable file. Context is now mandatory for `embed_html` and
+  absolute paths are rejected outright.
+- **Case-insensitive split, case-sensitive lookup.** `HEIGHT=200px` split the
+  parameters but was then ignored. Named keys are now lower-cased.
+- **Quote stripping.** `.strip('"').strip("'")` removed quote characters independently;
+  it now removes a single matching enclosing pair.
+- **The test suite wrote to `/tmp/secret.html`** — outside the temporary directory it
+  owned — and deleted it, which could clobber an unrelated file and race parallel runs.
+  All artifacts now stay inside the owned temporary directory.
+- `base64.b64decode` in the test helper is now `validate=True`, since a browser's
+  `atob()` rejects trailing content that Python tolerates.
+- The `]]>` / `-->` sweep is unreachable by construction, so it now logs a warning if it
+  ever fires rather than silently applying a lossy rewrite.
+
+Accepted limitations, documented in the README rather than fixed: macro parameters
+cannot contain `-->` (inherent to the comment carrier, shared by all macros), a `title`
+containing a comma must be double-quoted, and a path containing `,height=` / `,width=` /
+`,title=` cannot be expressed.
+
 ## Out of scope
 
 The sibling `matilionglueanalysis` repo is not touched. It will add the macro

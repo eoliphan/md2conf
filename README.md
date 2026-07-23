@@ -550,20 +550,27 @@ The embed HTML macro inlines a self-contained HTML file and renders it *live* on
 
 **Parameters:**
 
-- `path` (required): Path to the HTML file, resolved **relative to the directory of the Markdown file** containing the macro (the same way image and attachment paths resolve). The file must reside within the documentation root.
+- `path` (required): Path to the HTML file, resolved **relative to the directory of the Markdown file** containing the macro (the same way image and attachment paths resolve). The file must reside within the documentation root. Absolute paths are rejected.
 - `height` (optional): CSS length for the iframe height; defaults to `1040px`.
 - `width` (optional): CSS length for the iframe width; defaults to `100%`.
 - `title` (optional): Accessible title for the iframe; defaults to `Embedded HTML`.
 
-`height` and `width` accept a number followed by `px`, `em`, `rem`, `%`, `vh` or `vw`; any other value is ignored with a warning and the default is used.
+Parameter names are case-insensitive. `height` and `width` accept a number followed by `px`, `em`, `rem`, `%`, `vh` or `vw`; any other value is ignored with a warning and the default is used.
 
 **Requirements and caveats:**
 
 - The target Confluence instance must have the **HTML macro enabled** (it is disabled by default on Confluence Cloud, and is an administrator-controlled feature on Data Center/Server).
 - The HTML file should be **self-contained** — inline CSS and JavaScript, no external asset references — because only the file itself is embedded.
+- The file must be **UTF-8** encoded. It is transported byte-for-byte, but the browser decodes it as UTF-8, so other encodings render as replacement characters. A warning is logged if the file is not valid UTF-8.
 - The file is embedded base64-encoded, so it adds roughly 4/3 of its size to the page. A warning is logged above 5 MB.
-- The iframe is deliberately **not** sandboxed, so the embedded document's inline scripts run. Only embed HTML you trust.
-- If the file is missing, unreadable, or outside the documentation root, a warning is logged and the macro invocation is left unexpanded rather than failing the build.
+- The iframe is deliberately **not** sandboxed, so the embedded document's inline scripts run. It shares the Confluence page's origin, which means embedded documents can reach the parent document and share its `localStorage`. Only embed HTML you trust.
+- If the file is missing, unreadable, not within the documentation root, or given as an absolute path, a warning is logged and the macro invocation is left unexpanded rather than failing the build.
+
+**Parameter syntax limits** (shared by all `<!-- macro:... -->` macros, which are delimited by the first `-->`):
+
+- A parameter value cannot contain `-->`.
+- A `title` containing a comma must be double-quoted: `title="Alpha, Beta"`.
+- A file path containing a comma immediately followed by `height=`, `width=` or `title=` cannot be expressed; rename the file.
 
 #### Using Macros in Tables
 

@@ -13,7 +13,7 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Callable, Optional
 
 LOGGER = logging.getLogger(__name__)
@@ -220,6 +220,14 @@ def _escape_attribute(value: str) -> str:
     return value
 
 
+def _unquote(value: str) -> str:
+    """Remove one matching pair of enclosing quotes, if present."""
+
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
+
+
 def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> str:
     """
     Expand an `embed_html` macro, inlining a self-contained HTML file as a live iframe.
@@ -249,10 +257,12 @@ def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> st
 
     # split the path from the named parameters, so paths may contain `,` and `=`
     parts = _EMBED_HTML_SPLIT.split(params, maxsplit=1)
-    path_text = parts[0].strip().strip('"').strip("'").strip()
+    path_text = _unquote(parts[0].strip())
     named: dict[str, str] = {}
     if len(parts) > 1:
-        _, named = parse_parameters(parts[1])
+        _, parsed = parse_parameters(parts[1])
+        # the split is case-insensitive, so the lookup must be too
+        named = {key.lower(): value for key, value in parsed.items()}
 
     if not path_text:
         LOGGER.warning("macro `embed_html` requires a file path; leaving invocation unchanged")
@@ -270,14 +280,22 @@ def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> st
 
     title = _escape_attribute(named.get("title", "Embedded HTML").strip())
 
-    base_dir = context.base_dir if context is not None and context.base_dir is not None else Path.cwd()
-    absolute_path = (base_dir / path_text).resolve()
+    # containment is mandatory: without it an absolute path, a `..` traversal or a symlink
+    # would inline any file readable by the publishing process into a Confluence page
+    if context is None or context.base_dir is None or context.root_dir is None:
+        LOGGER.warning("macro `embed_html` requires document context; leaving invocation unchanged")
+        return original
 
-    if context is not None and context.root_dir is not None:
-        root_dir = context.root_dir.resolve()
-        if not absolute_path.is_relative_to(root_dir):
-            LOGGER.warning("macro `embed_html` refusing %s; path points outside root path %s", absolute_path, root_dir)
-            return original
+    if PurePath(path_text).is_absolute():
+        LOGGER.warning("macro `embed_html` refusing absolute path %s; use a path relative to the Markdown file", path_text)
+        return original
+
+    root_dir = context.root_dir.resolve()
+    absolute_path = (context.base_dir / path_text).resolve()
+
+    if not absolute_path.is_relative_to(root_dir):
+        LOGGER.warning("macro `embed_html` refusing %s; path points outside root path %s", absolute_path, root_dir)
+        return original
 
     try:
         data = absolute_path.read_bytes()
@@ -288,21 +306,34 @@ def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> st
     if len(data) > _EMBED_HTML_SIZE_WARN:
         LOGGER.warning("macro `embed_html` embedding %d bytes from %s; this makes for a heavy page", len(data), absolute_path)
 
+    # the payload is decoded as UTF-8 in the browser; anything else would render as U+FFFD
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        LOGGER.warning("macro `embed_html` file %s is not valid UTF-8; it will render with replacement characters", absolute_path)
+
     payload = base64.b64encode(data).decode("ascii")
     identifier = hashlib.md5(payload.encode("ascii")).hexdigest()[:8]
     frame_id = f"mdc-embed-{identifier}"
 
+    # the frame is located via `document.currentScript` so that embedding the same file
+    # twice on a page still populates both frames; the identifier is only a fallback for
+    # environments where `currentScript` is unavailable
+    #
     # emitted as a single line without `//` comments: the converter rewrites newlines to spaces
     body = (
         f'<iframe id="{frame_id}" style="width:{width};height:{height};border:0" loading="lazy" title="{title}"></iframe>'
-        f'<script>(function(){{var b="{payload}";'
-        f'var e=document.getElementById("{frame_id}");'
+        f'<script>(function(){{var s=document.currentScript;var b="{payload}";'
+        f'var e=s?s.previousElementSibling:document.getElementById("{frame_id}");'
         f"e.srcdoc=new TextDecoder().decode(Uint8Array.from(atob(b),function(c){{return c.charCodeAt(0)}}));}})();</script>"
     )
 
-    # defence in depth: neither sequence can survive parameter escaping or the base64 alphabet
-    body = body.replace("]]>", "]]]]><![CDATA[>")
-    body = body.replace("-->", "--&gt;")
+    # defence in depth; unreachable because the base64 alphabet excludes both sequences and
+    # every interpolated parameter is escaped, so a hit means an escaping regression
+    if "]]>" in body or "-->" in body:
+        LOGGER.warning("macro `embed_html` neutralized an unexpected `]]>` or `-->` in the generated body")
+        body = body.replace("]]>", "]]]]><![CDATA[>")
+        body = body.replace("-->", "--&gt;")
 
     csf = f'<ac:structured-macro ac:name="html"><ac:plain-text-body><![CDATA[{body}]]></ac:plain-text-body></ac:structured-macro>'
 
