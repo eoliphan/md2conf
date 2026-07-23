@@ -274,6 +274,38 @@ cannot contain `-->` (inherent to the comment carrier, shared by all macros), a 
 containing a comma must be double-quoted, and a path containing `,height=` / `,width=` /
 `,title=` cannot be expressed.
 
+## Browser verification
+
+The base64 transport requires the emitted inline `<script>` to execute — a dependency a
+static `srcdoc` would not have — so generation tests alone cannot show the page renders.
+The emitted fragment was recovered from `doc.xhtml()` (the text of `ac:plain-text-body`),
+written into a standalone page **twice** to exercise the duplicate-embed path, and loaded
+in Chrome. Results:
+
+| Check                                              | Result                        |
+| -------------------------------------------------- | ----------------------------- |
+| Both iframes populated, distinct elements           | yes                           |
+| Embedded document's inline script executed          | yes (`window.ready === true`) |
+| Newline-sensitive `//` comment did not swallow code | yes — 7 newlines preserved    |
+| Bare `-->` in a JS string survived verbatim         | yes                           |
+| `<!-- kept verbatim -->` in a JS string survived    | yes                           |
+| `]]>` in a JS string survived                       | yes                           |
+| `&amp;` and `'` decoded correctly                   | yes ("Fixture & friends")     |
+| Inline CSS applied, charset UTF-8                   | yes                           |
+
+`window.ready === true` is the decisive result: it is set on the line *after* a `//`
+comment, so it proves the newline-destruction blocker is genuinely defeated end to end.
+
+**Still unverified:** whether Confluence's HTML macro sanitizes the inline `<script>` on
+the target instance, and `localStorage` behaviour (the local test used `file://`, where
+every document is a unique origin; under `https://` a `srcdoc` frame inherits the parent
+origin). Both need a real publish to confirm.
+
+*Fallback if the instance strips inline scripts:* switch the shim to a static
+`<iframe src="data:text/html;base64,...">`, which needs no script execution. Cost: an
+opaque origin, so the embedded page loses `localStorage`. This is a one-line change, not
+a redesign.
+
 ## Out of scope
 
 The sibling `matilionglueanalysis` repo is not touched. It will add the macro
