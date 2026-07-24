@@ -362,6 +362,29 @@ Also de-risked the real 235 KB traceability explorer (11 `//` comments) through 
 pipeline: `srcdoc` round-trips byte-for-byte, all 789 newlines preserved, one CDATA, no
 stray `-->`.
 
+### Character-encoding hardening (adversarial review of the srcdoc fix)
+
+Dropping base64 reintroduced two byte-level hazards base64 had masked, both fixed by
+encoding the offending characters as numeric character references (`&#N;`) — inert text
+inside the CDATA carrier, resolved by the browser only when it parses the `srcdoc`
+attribute:
+
+- **XML-1.0-invalid control characters** (form feed `0x0c`, NUL, the other C0 controls,
+  `U+FFFE`/`U+FFFF`) reached the XML parser as raw bytes and aborted the *entire* page
+  with a `ConversionError`. base64 had kept them out of the document entirely.
+- **Tab and CR** were silently rewritten by Python-Markdown (tab → spaces, CR/CRLF → LF),
+  because macro expansion runs before `markdown_to_html()` — upstream of the converter
+  guard. This changed JavaScript string values.
+
+`LF` is deliberately left literal (valid XML, preserved by the converter guard, keeps the
+stored output readable). The page-weight warning now measures the generated storage size,
+since escaping can inflate a file of quotes roughly sixfold.
+
+A second live scratch page confirmed the encoding survives the real sanitizer: the stored
+`body.storage` contained `&#9;` and `&#12;`, and rendering the stored bytes in a browser
+reconstructed the tab and form feed (the embedded script reported `OK tab=true ff=true`).
+Page deleted afterward.
+
 ### Fallback if a future instance strips even script-free bodies
 
 None was needed. If one ever is, a `data:text/html;base64,...` iframe `src` renders a
