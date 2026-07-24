@@ -226,18 +226,29 @@ def _unquote(value: str) -> str:
     return value
 
 
+# characters the transport cannot carry literally, replaced with numeric character
+# references: tab (0x09) and CR (0x0d) are rewritten by Markdown (tab -> spaces, CR -> LF),
+# and the XML-1.0-invalid code points (the other C0 controls, plus U+FFFE/U+FFFF) would make
+# the whole document fail to parse. LF (0x0a) is excluded -- it is valid, preserved by the
+# converter guard, and keeps the stored output readable. Inside the CDATA carrier a `&#N;` is
+# inert text; the browser resolves it only when it parses the `srcdoc` attribute.
+_SRCDOC_UNSAFE = re.compile("[\x00-\x09\x0b-\x1f\ufffe\uffff]")
+
+
 def _escape_srcdoc(html: str) -> str:
     """
     Escape a document for a double-quoted `srcdoc` attribute, preserving newlines.
 
     `&` must be escaped first so the escapes introduced for the other characters are not
-    themselves re-escaped.
+    themselves re-escaped. Tab, CR and XML-invalid control characters are then emitted as
+    numeric character references so the transport neither mangles nor rejects them.
     """
 
     html = html.replace("&", "&amp;")
     html = html.replace("<", "&lt;")
     html = html.replace(">", "&gt;")
     html = html.replace('"', "&quot;")
+    html = _SRCDOC_UNSAFE.sub(lambda m: f"&#{ord(m.group(0))};", html)
     return html
 
 
@@ -326,9 +337,6 @@ def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> st
         LOGGER.warning("macro `embed_html` cannot read %s: %s", absolute_path, exc)
         return original
 
-    if len(data) > _EMBED_HTML_SIZE_WARN:
-        LOGGER.warning("macro `embed_html` embedding %d bytes from %s; this makes for a heavy page", len(data), absolute_path)
-
     # the browser parses `srcdoc` as UTF-8; anything else would render as U+FFFD
     try:
         html = data.decode("utf-8")
@@ -338,6 +346,12 @@ def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> st
 
     srcdoc = _escape_srcdoc(html)
     body = f'<iframe srcdoc="{srcdoc}" style="width:{width};height:{height};border:0" loading="lazy" title="{title}"></iframe>'
+
+    # escaping can inflate the payload (every `"` becomes `&quot;`), so weigh the generated
+    # storage, not just the source file
+    weight = len(body.encode("utf-8"))
+    if weight > _EMBED_HTML_SIZE_WARN:
+        LOGGER.warning("macro `embed_html` generated %d bytes from %s; this makes for a heavy page", weight, absolute_path)
 
     # defence in depth; unreachable because escaping `<`/`>`/`"` removes both sequences from
     # the file content and every interpolated parameter is escaped, so a hit is a regression

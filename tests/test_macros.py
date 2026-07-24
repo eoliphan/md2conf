@@ -6,6 +6,7 @@ Copyright 2022-2025, Levente Hunyadi
 :see: https://github.com/hunyadi/md2conf
 """
 
+import html as htmlmod
 import logging
 import re
 import tempfile
@@ -30,13 +31,9 @@ logging.basicConfig(
 
 
 def unescape_srcdoc(escaped: str) -> str:
-    "Reverses `_escape_srcdoc`; `&amp;` is undone last so earlier undos are not double-decoded."
+    "Reverses `_escape_srcdoc` the way a browser resolves a `srcdoc` attribute (numeric refs included)."
 
-    escaped = escaped.replace("&quot;", '"')
-    escaped = escaped.replace("&gt;", ">")
-    escaped = escaped.replace("&lt;", "<")
-    escaped = escaped.replace("&amp;", "&")
-    return escaped
+    return htmlmod.unescape(escaped)
 
 
 def extract_srcdoc(result: str) -> str:
@@ -164,6 +161,33 @@ class TestEmbedHtmlMacro(TypedTestCase):
         self.write("page.html", content.encode("utf-8"))
 
         self.assertEqual(extract_srcdoc(self.expand("page.html")), content)
+
+    def test_xml_invalid_control_char_is_encoded_as_numeric_reference(self) -> None:
+        "A raw form feed would make the whole document fail XML parsing; a `&#12;` inside CDATA is inert."
+
+        self.write("page.html", b"<html>a\x0cb</html>")
+        result = self.expand("page.html")
+
+        self.assertNotIn("\x0c", result)
+        self.assertIn("&#12;", result)
+        self.assertEqual(extract_srcdoc(result), "<html>a\x0cb</html>")
+
+    def test_tab_and_cr_are_encoded_so_markdown_cannot_rewrite_them(self) -> None:
+        "Markdown expands a raw tab to spaces and normalizes CR to LF; numeric references survive."
+
+        self.write("page.html", b"a\tb\rc")
+        result = self.expand("page.html")
+
+        self.assertIn("&#9;", result)
+        self.assertIn("&#13;", result)
+        self.assertEqual(extract_srcdoc(result), "a\tb\rc")
+
+    def test_newline_is_kept_literal_not_encoded(self) -> None:
+        self.write("page.html", b"a\nb")
+        result = self.expand("page.html")
+
+        self.assertNotIn("&#10;", result)
+        self.assertIn("\n", extract_srcdoc(result))
 
     def test_invalid_utf8_renders_with_replacement_and_warns(self) -> None:
         content = b"<html>\xff\xfe</html>"
@@ -390,6 +414,26 @@ class TestEmbedHtmlEndToEnd(TypedTestCase):
         xhtml = self.convert(content)
 
         self.assertEqual(self.srcdoc_of(xhtml), content.decode("utf-8"))
+
+    def test_xml_invalid_control_char_does_not_abort_conversion(self) -> None:
+        "A raw control char used to raise ConversionError; it must now pass through as a numeric reference."
+
+        xhtml = self.convert(b'<html><script>let x="a\x0cb";</script></html>')
+
+        self.assertIn("<iframe", xhtml)
+        self.assertEqual(self.srcdoc_of(xhtml), '<html><script>let x="a\x0cb";</script></html>')
+
+    def test_tab_survives_the_pipeline(self) -> None:
+        "Markdown expands a raw tab to spaces; the encoded reference must round-trip instead."
+
+        xhtml = self.convert(b"<html>\tindented</html>")
+
+        self.assertEqual(self.srcdoc_of(xhtml), "<html>\tindented</html>")
+
+    def test_crlf_survives_the_pipeline(self) -> None:
+        xhtml = self.convert(b"<html>a\r\nb</html>")
+
+        self.assertEqual(self.srcdoc_of(xhtml), "<html>a\r\nb</html>")
 
     def test_dimensions_survive_the_pipeline(self) -> None:
         xhtml = self.convert(b"<html></html>", "explorer.html, height=1400px, title=Explorer")
