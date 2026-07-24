@@ -306,6 +306,67 @@ origin). Both need a real publish to confirm.
 opaque origin, so the embedded page loses `localStorage`. This is a one-line change, not
 a redesign.
 
+## Revision 2 (2026-07-24): base64 renders empty on live Confluence
+
+The base64 + inline-decoder-`<script>` transport described above passed `--local` and a
+local browser test but produced an **empty** `<ac:structured-macro ac:name="html"/>` on
+the live Data Center instance. Two independent reasons, both confirmed against
+`confluence.grantsolutions.gov`:
+
+1. Confluence's server-side storage sanitizer drops the entire `plain-text-body` when it
+   contains a `<script>`. Curling the target page's `body.storage` after publish showed a
+   self-closing macro with no body.
+2. Even if kept, html-macro bodies are injected via `innerHTML`, where an inline
+   `<script>` never executes — so the base64 decoder could not have run regardless.
+
+**Fix: emit the pattern Confluence actually stores for a hand-authored HTML macro** —
+the file's HTML entity-escaped (`&`→`&amp;` first, then `<`→`&lt;`, `>`→`&gt;`,
+`"`→`&quot;`) into a double-quoted `srcdoc`, newlines preserved, no script, no base64.
+The browser parses `srcdoc` as a full document and runs *its* inline scripts, so no
+decoder is needed. Two hand-authored reference pages on the same instance (ids
+325715830, 325715832) store exactly this pattern and render correctly.
+
+This reintroduces the raw multi-line payload base64 was chosen to avoid, so the original
+three blockers are addressed at the source instead:
+
+- Escaping `<` and `>` removes every literal `-->` (carrier truncation) and `]]>` (CDATA
+  break) from the file content. Verified: `markdown_to_html` preserves the multi-line
+  `<!-- csf: -->` comment verbatim, blank lines included, so the carrier survives.
+- The converter's newline-flattening is the remaining corruption, and it is now guarded:
+  `transform()` skips the `\n`→space rewrite for a verbatim `ac:plain-text-body`. That
+  rewrite previously both destroyed newlines (so a `//` comment ate the rest of a script)
+  and collapsed the CDATA node to escaped text. This is a correct fix in its own right —
+  a `plain-text-body` is preformatted. Code-block macros were never affected because they
+  are built inside `transform()` and `visit()` does not recurse into a returned element.
+
+### Live verification (the gate this task turned on)
+
+`--local` and a local browser were explicitly *insufficient* — they passed while the live
+page was broken. Verification was therefore done against the real API:
+
+1. Published a scratch page (a small interactive fixture containing a `//` comment, a
+   `-->`, a `]]>`, and a click handler) to GSSPACE via `md2conf ... --deployment-type
+   datacenter`.
+2. Curled its `body.storage`: **non-empty** — `<ac:plain-text-body>` with the full
+   `<iframe srcdoc=...>` present (not the self-closing empty form), newlines and the
+   `SCRIPTS-RAN` sentinel intact. This is the specific signal that distinguishes the fix
+   from the base64 version.
+3. Rendered Confluence's exact stored bytes in a browser and drove the button: the inline
+   script executed (`out` became `SCRIPTS-RAN marker=--> term=]]>`), proving the `//`
+   comment did not swallow the following statement and the `-->`/`]]>` literals
+   round-tripped. (The live page itself is behind SSO; the stored bytes are what its HTML
+   macro injects, and they match the known-rendering reference pattern.)
+4. Deleted the scratch page.
+
+Also de-risked the real 235 KB traceability explorer (11 `//` comments) through the full
+pipeline: `srcdoc` round-trips byte-for-byte, all 789 newlines preserved, one CDATA, no
+stray `-->`.
+
+### Fallback if a future instance strips even script-free bodies
+
+None was needed. If one ever is, a `data:text/html;base64,...` iframe `src` renders a
+static document with no script execution required, at the cost of an opaque origin.
+
 ## Out of scope
 
 The sibling `matilionglueanalysis` repo is not touched. It will add the macro

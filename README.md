@@ -561,9 +561,9 @@ Parameter names are case-insensitive. `height` and `width` accept a number follo
 
 - The target Confluence instance must have the **HTML macro enabled** (it is disabled by default on Confluence Cloud, and is an administrator-controlled feature on Data Center/Server).
 - The HTML file should be **self-contained** — inline CSS and JavaScript, no external asset references — because only the file itself is embedded.
-- The file must be **UTF-8** encoded. It is transported byte-for-byte, but the browser decodes it as UTF-8, so other encodings render as replacement characters. A warning is logged if the file is not valid UTF-8.
-- The file is embedded base64-encoded, so it adds roughly 4/3 of its size to the page. A warning is logged above 5 MB.
-- The iframe is deliberately **not** sandboxed, so the embedded document's inline scripts run. It shares the Confluence page's origin, which means embedded documents can reach the parent document and share its `localStorage`. Only embed HTML you trust.
+- The file must be **UTF-8** encoded. The browser parses the embedded `srcdoc` as UTF-8, so other encodings render as replacement characters. A warning is logged if the file is not valid UTF-8.
+- The file's HTML is entity-escaped into the iframe's `srcdoc` attribute, so the page grows by roughly the size of the embedded file. A warning is logged above 5 MB.
+- The iframe is deliberately **not** sandboxed, so the embedded document's inline scripts run. The browser parses `srcdoc` as a full document and runs its scripts directly — no wrapper script is emitted (an inline `<script>` in an HTML-macro body is stripped by Confluence's storage sanitizer and would not execute anyway). Only embed HTML you trust.
 - If the file is missing, unreadable, not within the documentation root, or given as an absolute path, a warning is logged and the macro invocation is left unexpanded rather than failing the build.
 
 **Parameter syntax limits** (shared by all `<!-- macro:... -->` macros, which are delimited by the first `-->`):
