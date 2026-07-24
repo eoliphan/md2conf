@@ -136,7 +136,11 @@ The architecture supports both Confluence Cloud (v2 API) and Data Center/Server 
 - **domain.py** - Core data types (ConfluenceDocumentOptions, ConfluencePageID)
 - **environment.py** - Configuration and error types (ConfluenceConnectionProperties, custom exceptions)
 - **metadata.py** - Site and page metadata structures
-- **macros.py** - Macro expansion facility; shorthand syntax (`<!-- macro:name: params -->`) for common Confluence macros (jira, status, emoticon) that expand to CSF comments
+- **macros.py** - Macro expansion facility; shorthand syntax (`<!-- macro:name: params -->`) for common Confluence macros (jira, status, emoticon, embed_html) that expand to CSF comments
+  - Expanders are registered either as `register()` (signature `(params)`) or `register_contextual()` (signature `(params, context)`). Membership in the contextual registry — never signature introspection — decides which form is called; `expand()` swallows all exceptions, so a signature mismatch would fail silently.
+  - `MacroContext` carries `base_dir` (the source Markdown file's directory) and `root_dir`, threaded from `ConfluenceDocument.__init__`. This is how `embed_html` resolves file paths the same way images and attachments do, and enforces that they stay within the documentation root.
+  - `embed_html` base64-encodes the file rather than inlining it. **This is load-bearing, not an optimization:** raw multi-line content cannot survive the `<!-- csf: -->` passthrough. `ConfluenceStorageFormatConverter.transform()` rewrites every newline in element text to a space (so a `//` comment swallows the rest of a script), the non-greedy CSF comment regex truncates at any bare `-->`, and HTML-comment stripping is not HTML-aware so it corrupts JS strings. Base64's alphabet cannot contain any of those. Any future macro emitting arbitrary content needs the same treatment — see `cdocs/2026-07-23-embed-html-macro-design.md`.
+  - Tests for content-emitting macros must assert against the final `doc.xhtml()`, not the expander's return value; all three failures above occur *after* the macro layer.
 - **skill.py** - Claude Code skill generation; `generate_skill()` writes a `.md` skill file from the package's own documentation
 
 ### Page Association
