@@ -6,7 +6,6 @@ Copyright 2022-2025, Levente Hunyadi
 :see: https://github.com/hunyadi/md2conf
 """
 
-import base64
 import logging
 import re
 import tempfile
@@ -30,22 +29,24 @@ logging.basicConfig(
 )
 
 
-def extract_payload(result: str) -> bytes:
-    "Recovers the original file bytes from the base64 payload embedded in an expansion result."
+def unescape_srcdoc(escaped: str) -> str:
+    "Reverses `_escape_srcdoc`; `&amp;` is undone last so earlier undos are not double-decoded."
 
-    match = re.search(r'var b="([A-Za-z0-9+/=]*)"', result)
+    escaped = escaped.replace("&quot;", '"')
+    escaped = escaped.replace("&gt;", ">")
+    escaped = escaped.replace("&lt;", "<")
+    escaped = escaped.replace("&amp;", "&")
+    return escaped
+
+
+def extract_srcdoc(result: str) -> str:
+    "Recovers the original document text from the `srcdoc` attribute of an expansion result."
+
+    # the escaped content contains no raw double quote, so the first `"` closes the attribute
+    match = re.search(r'<iframe srcdoc="(.*?)"\s+style=', result, re.DOTALL)
     if match is None:
-        raise AssertionError(f"no base64 payload found in: {result[:200]}")
-
-    encoded = match.group(1)
-    decoded = base64.b64decode(encoded, validate=True)
-
-    # `b64decode` tolerates non-canonical input that a browser's `atob()` rejects (for
-    # example "AAAA="), so require the payload to be exactly what `b64encode` produces
-    if base64.b64encode(decoded).decode("ascii") != encoded:
-        raise AssertionError("payload is not canonical base64 and would be rejected by atob()")
-
-    return decoded
+        raise AssertionError(f"no iframe srcdoc found in: {result[:200]}")
+    return unescape_srcdoc(match.group(1))
 
 
 class TestEmbedHtmlMacro(TypedTestCase):
@@ -74,7 +75,7 @@ class TestEmbedHtmlMacro(TypedTestCase):
 
     # -- structure -----------------------------------------------------------
 
-    def test_produces_csf_wrapped_html_macro_with_iframe(self) -> None:
+    def test_produces_csf_wrapped_html_macro_with_iframe_srcdoc(self) -> None:
         self.write("page.html", b"<html><body>hi</body></html>")
         result = self.expand("page.html")
 
@@ -82,98 +83,96 @@ class TestEmbedHtmlMacro(TypedTestCase):
         self.assertTrue(result.endswith(" -->"))
         self.assertIn('<ac:structured-macro ac:name="html">', result)
         self.assertIn("<ac:plain-text-body><![CDATA[", result)
-        self.assertIn("<iframe ", result)
-        self.assertIn("srcdoc", result)
+        self.assertIn('<iframe srcdoc="', result)
 
-    def test_payload_round_trips_byte_for_byte(self) -> None:
-        content = b"<html><body>plain</body></html>"
-        self.write("page.html", content)
+    def test_uses_no_script_and_no_base64(self) -> None:
+        "An inline script trips Confluence's storage sanitizer and never executes via innerHTML."
 
-        self.assertEqual(extract_payload(self.expand("page.html")), content)
-
-    def test_emits_a_single_line(self) -> None:
-        "The converter rewrites newlines to spaces, so the emitted body must contain none."
-
-        self.write("page.html", b"<html>\n<body>\nhi\n</body>\n</html>")
-
-        self.assertNotIn("\n", self.expand("page.html"))
-
-    def test_no_double_slash_comments_in_shim(self) -> None:
-        """
-        A `//` comment would swallow the rest of the shim once newlines become spaces.
-
-        The base64 alphabet includes `/`, so `//` may appear inside the payload string
-        literal, where it is inert; only the surrounding code is checked.
-        """
-
-        self.write("page.html", b"<html></html>")
+        self.write("page.html", b"<html><body>hi</body></html>")
         result = self.expand("page.html")
-        shim = result[result.index("<script>") :]
-        code = re.sub(r'var b="[A-Za-z0-9+/=]*"', "", shim)
 
-        self.assertNotIn("//", code)
+        self.assertNotIn("<script", result)
+        self.assertNotIn("atob", result)
+        self.assertNotIn("base64", result)
+        self.assertNotIn("TextDecoder", result)
+
+    def test_srcdoc_round_trips_the_document(self) -> None:
+        content = "<html><body>plain</body></html>"
+        self.write("page.html", content.encode("utf-8"))
+
+        self.assertEqual(extract_srcdoc(self.expand("page.html")), content)
+
+    def test_newlines_are_preserved(self) -> None:
+        content = "<html>\n<body>\nhi\n</body>\n</html>"
+        self.write("page.html", content.encode("utf-8"))
+
+        self.assertEqual(extract_srcdoc(self.expand("page.html")), content)
+
+    # -- escaping ------------------------------------------------------------
+
+    def test_entity_escaping(self) -> None:
+        self.write("page.html", b'<html>a & b "q" it')
+        result = self.expand("page.html")
+        match = re.search(r'<iframe srcdoc="(.*?)"\s+style=', result, re.DOTALL)
+        assert match is not None
+        srcdoc = match.group(1)
+
+        self.assertNotIn("<html>", srcdoc)
+        self.assertIn("&lt;html&gt;", srcdoc)
+        self.assertIn("&amp;", srcdoc)
+        self.assertIn("&quot;", srcdoc)
+
+    def test_ampersand_is_escaped_first(self) -> None:
+        'Escaping `&` last would double-escape the entities introduced for `<`, `>` and `"`.'
+
+        content = "<a> & </a>"
+        self.write("page.html", content.encode("utf-8"))
+        result = self.expand("page.html")
+
+        self.assertNotIn("&amp;lt;", result)
+        self.assertEqual(extract_srcdoc(result), content)
 
     # -- destructive payloads ------------------------------------------------
 
-    def test_bare_arrow_in_javascript_is_preserved_and_does_not_truncate(self) -> None:
-        "A standalone `-->` would truncate the non-greedy CSF comment regex."
+    def test_bare_arrow_in_content_is_escaped_and_does_not_truncate(self) -> None:
+        "A standalone `-->` would otherwise truncate the CSF comment carrier."
 
-        content = b'<html><script>const marker = "-->";</script></html>'
-        self.write("page.html", content)
+        content = '<html><script>const marker = "-->";</script></html>'
+        self.write("page.html", content.encode("utf-8"))
         result = self.expand("page.html")
 
-        self.assertEqual(result.count("-->"), 1, "only the closing CSF comment may contain -->")
+        self.assertNotIn("-->", result[:-4], "no --> may appear before the closing CSF comment")
         self.assertTrue(result.endswith("</ac:structured-macro> -->"))
-        self.assertEqual(extract_payload(result), content)
+        self.assertEqual(extract_srcdoc(result), content)
 
-    def test_html_comment_inside_javascript_string_is_preserved(self) -> None:
-        "Regex comment-stripping would silently delete this; base64 must preserve it."
-
-        content = b'<html><script>const t = "<!-- keep me -->";</script></html>'
-        self.write("page.html", content)
-
-        self.assertEqual(extract_payload(self.expand("page.html")), content)
-
-    def test_newline_sensitive_javascript_is_preserved(self) -> None:
-        content = b"<html><script>\n// a line comment\nwindow.x = 1;\n</script></html>"
-        self.write("page.html", content)
-
-        self.assertEqual(extract_payload(self.expand("page.html")), content)
-
-    def test_cdata_terminator_in_payload_is_preserved_and_does_not_escape(self) -> None:
-        content = b'<html><script>const s = "]]>";</script></html>'
-        self.write("page.html", content)
+    def test_cdata_terminator_in_content_is_escaped(self) -> None:
+        content = '<html><script>const s = "]]>";</script></html>'
+        self.write("page.html", content.encode("utf-8"))
         result = self.expand("page.html")
 
         self.assertEqual(result.count("]]>"), 1, "only the closing CDATA may contain ]]>")
-        self.assertEqual(extract_payload(result), content)
+        self.assertEqual(extract_srcdoc(result), content)
 
-    def test_xml_invalid_control_characters_are_tolerated(self) -> None:
-        "A form feed is valid UTF-8 but invalid in XML 1.0; base64 keeps it out of the document."
+    def test_html_comment_in_content_is_preserved(self) -> None:
+        content = '<html><script>const t = "<!-- keep me -->";</script></html>'
+        self.write("page.html", content.encode("utf-8"))
 
-        content = b"<html>\x0c<body>hi</body></html>"
-        self.write("page.html", content)
-        result = self.expand("page.html")
+        self.assertEqual(extract_srcdoc(self.expand("page.html")), content)
 
-        self.assertNotIn("\x0c", result)
-        self.assertEqual(extract_payload(result), content)
+    def test_line_comment_javascript_is_preserved(self) -> None:
+        content = "<html><script>\n// a line comment\nwindow.x = 1;\n</script></html>"
+        self.write("page.html", content.encode("utf-8"))
 
-    def test_invalid_utf8_bytes_transport_intact_but_are_warned_about(self) -> None:
-        """
-        The file is read as bytes, so undecodable content still embeds.
+        self.assertEqual(extract_srcdoc(self.expand("page.html")), content)
 
-        The browser-side decoder is UTF-8 in replacement mode, so such a file renders as
-        U+FFFD rather than its original bytes. Transport fidelity is asserted here; the
-        rendering caveat is surfaced as a warning rather than silently accepted.
-        """
-
+    def test_invalid_utf8_renders_with_replacement_and_warns(self) -> None:
         content = b"<html>\xff\xfe</html>"
         self.write("page.html", content)
 
         with self.assertLogs("md2conf.macros", level="WARNING") as captured:
             result = self.expand("page.html")
 
-        self.assertEqual(extract_payload(result), content)
+        self.assertEqual(extract_srcdoc(result), content.decode("utf-8", errors="replace"))
         self.assertTrue(any("not valid UTF-8" in message for message in captured.output))
 
     def test_valid_utf8_does_not_warn(self) -> None:
@@ -185,18 +184,10 @@ class TestEmbedHtmlMacro(TypedTestCase):
 
         self.assertListEqual([str(call) for call in warning.call_args_list], [])
 
-    def test_ampersand_and_quote_in_payload_are_preserved(self) -> None:
-        content = b"""<html><body>a &amp; b, it's here & "quoted"</body></html>"""
-        self.write("page.html", content)
-
-        self.assertEqual(extract_payload(self.expand("page.html")), content)
-
     # -- failure paths -------------------------------------------------------
 
     def test_missing_file_returns_original_text_unchanged(self) -> None:
-        result = self.expand("nonexistent.html")
-
-        self.assertEqual(result, "<!-- macro:embed_html: nonexistent.html -->")
+        self.assertEqual(self.expand("nonexistent.html"), "<!-- macro:embed_html: nonexistent.html -->")
 
     def test_empty_path_returns_original_text_unchanged(self) -> None:
         self.assertEqual(self.expand(""), "<!-- macro:embed_html:  -->")
@@ -204,15 +195,13 @@ class TestEmbedHtmlMacro(TypedTestCase):
     def test_path_outside_root_dir_is_refused(self) -> None:
         "Otherwise any readable file could be inlined into a Confluence page."
 
-        # every artifact stays inside the temporary directory this test owns
         docs = self.root_dir / "docs"
         docs.mkdir()
         (self.root_dir / "secret.html").write_bytes(b"<html>secret</html>")
 
         context = MacroContext(base_dir=docs, root_dir=docs)
-        result = expand_embed_html("../secret.html", context)
 
-        self.assertEqual(result, "<!-- macro:embed_html: ../secret.html -->")
+        self.assertEqual(expand_embed_html("../secret.html", context), "<!-- macro:embed_html: ../secret.html -->")
 
     def test_symlink_escaping_root_dir_is_refused(self) -> None:
         docs = self.root_dir / "docs"
@@ -220,34 +209,33 @@ class TestEmbedHtmlMacro(TypedTestCase):
         (self.root_dir / "secret.html").write_bytes(b"<html>secret</html>")
         (docs / "link.html").symlink_to(self.root_dir / "secret.html")
 
-        result = expand_embed_html("link.html", MacroContext(base_dir=docs, root_dir=docs))
-
-        self.assertEqual(result, "<!-- macro:embed_html: link.html -->")
+        self.assertEqual(
+            expand_embed_html("link.html", MacroContext(base_dir=docs, root_dir=docs)),
+            "<!-- macro:embed_html: link.html -->",
+        )
 
     def test_absolute_path_is_refused(self) -> None:
-        "Joining an absolute path discards base_dir, so it must be rejected outright."
-
         secret = self.root_dir / "secret.html"
         secret.write_bytes(b"<html>secret</html>")
 
-        result = self.expand(str(secret))
-
-        self.assertEqual(result, f"<!-- macro:embed_html: {secret} -->")
+        self.assertEqual(self.expand(str(secret)), f"<!-- macro:embed_html: {secret} -->")
 
     def test_without_context_nothing_is_read(self) -> None:
-        "The containment check needs a context; without one the macro must refuse."
-
         readable = self.root_dir / "page.html"
         readable.write_bytes(b"<html>readable</html>")
 
-        result = expand_embed_html(str(readable), None)
-
-        self.assertEqual(result, f"<!-- macro:embed_html: {readable} -->")
+        self.assertEqual(expand_embed_html(str(readable), None), f"<!-- macro:embed_html: {readable} -->")
 
     def test_directory_instead_of_file_returns_original_text(self) -> None:
         (self.base_dir / "subdir").mkdir()
 
         self.assertEqual(self.expand("subdir"), "<!-- macro:embed_html: subdir -->")
+
+    def test_relative_path_without_context_is_refused(self) -> None:
+        self.assertEqual(
+            expand_embed_html("definitely-not-here.html", None),
+            "<!-- macro:embed_html: definitely-not-here.html -->",
+        )
 
     # -- parameters ----------------------------------------------------------
 
@@ -266,38 +254,25 @@ class TestEmbedHtmlMacro(TypedTestCase):
         self.assertIn("width:90%;height:1400px;border:0", result)
         self.assertIn('title="Traceability Explorer"', result)
 
-    def test_path_containing_comma_and_equals(self) -> None:
-        content = b"<html>odd</html>"
-        self.write("a,b=c.html", content)
-        result = self.expand("a,b=c.html, height=200px")
-
-        self.assertEqual(extract_payload(result), content)
-        self.assertIn("height:200px", result)
-
     def test_named_parameters_are_case_insensitive(self) -> None:
-        "The path/parameter split is case-insensitive, so the lookup must match."
-
         self.write("page.html", b"<html></html>")
         result = self.expand("page.html, HEIGHT=200px, Width=80%")
 
         self.assertIn("width:80%;height:200px", result)
 
+    def test_path_containing_comma_and_equals(self) -> None:
+        content = "<html>odd</html>"
+        self.write("a,b=c.html", content.encode("utf-8"))
+        result = self.expand("a,b=c.html, height=200px")
+
+        self.assertEqual(extract_srcdoc(result), content)
+        self.assertIn("height:200px", result)
+
     def test_quoted_path_is_unquoted_once(self) -> None:
-        content = b"<html>quoted</html>"
-        self.write("page.html", content)
+        content = "<html>quoted</html>"
+        self.write("page.html", content.encode("utf-8"))
 
-        self.assertEqual(extract_payload(self.expand('"page.html"')), content)
-
-    def test_locates_frame_via_current_script(self) -> None:
-        "Two embeds of the same file share a payload hash, so the id alone is not enough."
-
-        self.write("page.html", b"<html></html>")
-        result = self.expand("page.html")
-
-        self.assertIn("document.currentScript", result)
-        # the id lookup remains as a fallback for environments without `currentScript`,
-        # and is also reached when `previousElementSibling` is null
-        self.assertIn('(s&&s.previousElementSibling)||document.getElementById("mdc-embed-', result)
+        self.assertEqual(extract_srcdoc(self.expand('"page.html"')), content)
 
     def test_invalid_dimensions_fall_back_to_defaults(self) -> None:
         self.write("page.html", b"<html></html>")
@@ -315,17 +290,10 @@ class TestEmbedHtmlMacro(TypedTestCase):
         self.assertNotIn("a'b", result)
 
     def test_title_is_neutralized_in_the_generated_body(self) -> None:
-        """
-        Escaping the title keeps `-->` and `]]>` out of the generated body.
-
-        This covers the expander's own output. The macro *invocation* is a separate
-        matter -- see `test_arrow_in_parameters_truncates_the_invocation`.
-        """
-
         self.write("page.html", b"<html></html>")
         result = self.expand("page.html, title=x --> y ]]> z")
 
-        self.assertEqual(result.count("-->"), 1)
+        self.assertNotIn("-->", result[:-4])
         self.assertEqual(result.count("]]>"), 1)
 
     def test_no_sandbox_attribute(self) -> None:
@@ -335,22 +303,17 @@ class TestEmbedHtmlMacro(TypedTestCase):
 
         self.assertNotIn("sandbox", self.expand("page.html"))
 
-    def test_relative_path_without_context_is_refused(self) -> None:
-        self.assertEqual(
-            expand_embed_html("definitely-not-here.html", None),
-            "<!-- macro:embed_html: definitely-not-here.html -->",
-        )
-
 
 class TestEmbedHtmlEndToEnd(TypedTestCase):
     """
     Drives `embed_html` through the full conversion pipeline.
 
-    The pipeline is where the naive approach failed: the payload is carried inside an
+    The pipeline is where the naive approaches failed: the payload is carried inside an
     HTML comment terminated by the first `-->`, run through Markdown, parsed as XML, and
-    finally walked by a converter that rewrites every newline in element text to a
+    finally walked by a converter that used to rewrite every newline in element text to a
     space. These tests assert against the final `doc.xhtml()` rather than the expander's
-    return value.
+    return value -- the assertion that would have caught both the original newline bug and
+    the live-Confluence empty-body bug.
     """
 
     def setUp(self) -> None:
@@ -380,40 +343,53 @@ class TestEmbedHtmlEndToEnd(TypedTestCase):
         )
         return doc.xhtml()
 
+    def srcdoc_of(self, xhtml: str) -> str:
+        match = re.search(r'srcdoc="(.*?)"\s+style=', xhtml, re.DOTALL)
+        if match is None:
+            raise AssertionError(f"no srcdoc in output: {xhtml[:300]}")
+        return unescape_srcdoc(match.group(1))
+
+    def test_body_is_present_and_not_an_empty_macro(self) -> None:
+        "The live bug was an empty self-closing <ac:structured-macro/> with no body."
+
+        xhtml = self.convert(b"<html><body>hi</body></html>")
+
+        self.assertIn('<ac:structured-macro ac:name="html">', xhtml)
+        self.assertIn("<ac:plain-text-body>", xhtml)
+        self.assertIn("<iframe", xhtml)
+        self.assertNotIn('ac:name="html"/>', xhtml)
+
+    def test_cdata_is_preserved(self) -> None:
+        xhtml = self.convert(b"<html><body>hi</body></html>")
+
+        self.assertIn("CDATA", xhtml)
+
     def test_newline_sensitive_javascript_survives_the_pipeline(self) -> None:
-        "The converter rewrites newlines to spaces, which would let a `//` comment swallow the script."
+        "The converter used to rewrite newlines to spaces, letting a `//` comment swallow the script."
 
         content = b"<html><script>\n// a line comment\nwindow.x = 1;\n</script></html>"
         xhtml = self.convert(content)
 
-        self.assertIn('ac:name="html"', xhtml)
-        self.assertEqual(extract_payload(xhtml), content)
+        self.assertIn("\n// a line comment\n", self.srcdoc_of(xhtml))
+        self.assertEqual(self.srcdoc_of(xhtml), content.decode("utf-8"))
 
-    def test_payload_with_bare_arrow_survives_the_pipeline(self) -> None:
-        "A standalone `-->` would otherwise truncate the CSF comment carrier mid-CDATA."
-
+    def test_content_with_bare_arrow_survives_the_pipeline(self) -> None:
         content = b'<html><script>const marker = "-->";</script></html>'
         xhtml = self.convert(content)
 
-        self.assertEqual(extract_payload(xhtml), content)
+        self.assertEqual(self.srcdoc_of(xhtml), content.decode("utf-8"))
 
-    def test_payload_with_cdata_terminator_survives_the_pipeline(self) -> None:
+    def test_content_with_cdata_terminator_survives_the_pipeline(self) -> None:
         content = b'<html><script>const s = "]]>";</script></html>'
         xhtml = self.convert(content)
 
-        self.assertEqual(extract_payload(xhtml), content)
+        self.assertEqual(self.srcdoc_of(xhtml), content.decode("utf-8"))
 
-    def test_html_comment_in_javascript_survives_the_pipeline(self) -> None:
+    def test_html_comment_in_content_survives_the_pipeline(self) -> None:
         content = b'<html><script>const t = "<!-- keep me -->";</script></html>'
         xhtml = self.convert(content)
 
-        self.assertEqual(extract_payload(xhtml), content)
-
-    def test_xml_invalid_control_character_survives_the_pipeline(self) -> None:
-        content = b"<html>\x0c<body>hi</body></html>"
-        xhtml = self.convert(content)
-
-        self.assertEqual(extract_payload(xhtml), content)
+        self.assertEqual(self.srcdoc_of(xhtml), content.decode("utf-8"))
 
     def test_dimensions_survive_the_pipeline(self) -> None:
         xhtml = self.convert(b"<html></html>", "explorer.html, height=1400px, title=Explorer")

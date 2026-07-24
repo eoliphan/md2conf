@@ -8,8 +8,6 @@ Copyright 2022-2025, Levente Hunyadi
 :see: https://github.com/hunyadi/md2conf
 """
 
-import base64
-import hashlib
 import logging
 import re
 from dataclasses import dataclass
@@ -228,6 +226,21 @@ def _unquote(value: str) -> str:
     return value
 
 
+def _escape_srcdoc(html: str) -> str:
+    """
+    Escape a document for a double-quoted `srcdoc` attribute, preserving newlines.
+
+    `&` must be escaped first so the escapes introduced for the other characters are not
+    themselves re-escaped.
+    """
+
+    html = html.replace("&", "&amp;")
+    html = html.replace("<", "&lt;")
+    html = html.replace(">", "&gt;")
+    html = html.replace('"', "&quot;")
+    return html
+
+
 def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> str:
     """
     Expand an `embed_html` macro, inlining a self-contained HTML file as a live iframe.
@@ -238,15 +251,25 @@ def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> st
     same `base_dir` that images, drawio diagrams and linked attachments use), and must
     stay within the documentation root.
 
-    The file is read as bytes and base64-encoded rather than inlined verbatim. The
-    payload then consists solely of `[A-Za-z0-9+/=]` on a single line, which is what
-    makes the surrounding transports safe: the Confluence Storage Format passthrough
-    carries it inside an HTML comment terminated by the first `-->`, Markdown runs over
-    it, and the converter rewrites every newline in element text to a space. A raw HTML
-    payload would be corrupted by all three; base64 cannot contain `-->`, `]]>`, a
-    newline or an XML-invalid control character, so the file survives byte for byte and
-    needs no lossy pre-processing. A one-line script decodes it into the iframe's
-    `srcdoc`, which keeps the frame same-origin so embedded pages may use `localStorage`.
+    The file's HTML is entity-escaped and placed verbatim into a double-quoted `srcdoc`
+    attribute: `&` -> `&amp;`, `<` -> `&lt;`, `>` -> `&gt;`, `"` -> `&quot;`, with
+    newlines preserved. This matches the pattern Confluence stores for a hand-authored
+    HTML macro, and is what actually renders live.
+
+    An earlier revision base64-encoded the file and decoded it with an inline `<script>`.
+    That failed against the live REST API: Confluence's server-side storage sanitizer
+    drops the whole `plain-text-body` when it contains a `<script>`, and even when kept,
+    html-macro bodies are injected via `innerHTML`, where an inline `<script>` never runs.
+    A raw `srcdoc` needs no script -- the browser parses the attribute as a full document
+    and runs *its* inline scripts.
+
+    Escaping `<` and `>` also removes the two sequences that would otherwise corrupt the
+    Confluence Storage Format passthrough: a literal `-->` (which terminates the
+    `<!-- csf: ... -->` carrier) and a literal `]]>` (which closes the CDATA section) can
+    no longer occur in the file's content. Newlines survive because the converter no
+    longer flattens the text of a verbatim `plain-text-body` (see
+    `ConfluenceStorageFormatConverter.transform`); this matters because self-contained
+    pages routinely use `//` line comments that die if newlines become spaces.
 
     :param params: Macro parameters.
     :param context: Ambient document information supplying the base and root directories.
@@ -306,30 +329,18 @@ def expand_embed_html(params: str, context: Optional[MacroContext] = None) -> st
     if len(data) > _EMBED_HTML_SIZE_WARN:
         LOGGER.warning("macro `embed_html` embedding %d bytes from %s; this makes for a heavy page", len(data), absolute_path)
 
-    # the payload is decoded as UTF-8 in the browser; anything else would render as U+FFFD
+    # the browser parses `srcdoc` as UTF-8; anything else would render as U+FFFD
     try:
-        data.decode("utf-8")
+        html = data.decode("utf-8")
     except UnicodeDecodeError:
         LOGGER.warning("macro `embed_html` file %s is not valid UTF-8; it will render with replacement characters", absolute_path)
+        html = data.decode("utf-8", errors="replace")
 
-    payload = base64.b64encode(data).decode("ascii")
-    identifier = hashlib.md5(payload.encode("ascii")).hexdigest()[:8]
-    frame_id = f"mdc-embed-{identifier}"
+    srcdoc = _escape_srcdoc(html)
+    body = f'<iframe srcdoc="{srcdoc}" style="width:{width};height:{height};border:0" loading="lazy" title="{title}"></iframe>'
 
-    # the frame is located via `document.currentScript` so that embedding the same file
-    # twice on a page still populates both frames; the identifier is only a fallback for
-    # environments where `currentScript` is unavailable
-    #
-    # emitted as a single line without `//` comments: the converter rewrites newlines to spaces
-    body = (
-        f'<iframe id="{frame_id}" style="width:{width};height:{height};border:0" loading="lazy" title="{title}"></iframe>'
-        f'<script>(function(){{var s=document.currentScript;var b="{payload}";'
-        f'var e=(s&&s.previousElementSibling)||document.getElementById("{frame_id}");'
-        f"e.srcdoc=new TextDecoder().decode(Uint8Array.from(atob(b),function(c){{return c.charCodeAt(0)}}));}})();</script>"
-    )
-
-    # defence in depth; unreachable because the base64 alphabet excludes both sequences and
-    # every interpolated parameter is escaped, so a hit means an escaping regression
+    # defence in depth; unreachable because escaping `<`/`>`/`"` removes both sequences from
+    # the file content and every interpolated parameter is escaped, so a hit is a regression
     if "]]>" in body or "-->" in body:
         LOGGER.warning("macro `embed_html` neutralized an unexpected `]]>` or `-->` in the generated body")
         body = body.replace("]]>", "]]]]><![CDATA[>")

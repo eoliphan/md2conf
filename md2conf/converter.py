@@ -1974,8 +1974,11 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         Transforms an HTML element tree obtained from a Markdown document into a Confluence Storage Format element tree.
         """
 
-        # replace line breaks with regular space in element text to minimize phantom changes
-        if child.text:
+        # replace line breaks with regular space in element text to minimize phantom changes;
+        # a plain-text-body is verbatim (code and html macro bodies), so flattening its newlines
+        # would corrupt the content, and assigning to `.text` would also collapse its CDATA section
+        is_verbatim_body = isinstance(child.tag, str) and child.tag == AC_ATTR("plain-text-body")
+        if child.text and not is_verbatim_body:
             child.text = child.text.replace("\n", " ")
         if child.tail:
             child.tail = child.tail.replace("\n", " ")
