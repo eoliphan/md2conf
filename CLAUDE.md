@@ -136,7 +136,12 @@ The architecture supports both Confluence Cloud (v2 API) and Data Center/Server 
 - **domain.py** - Core data types (ConfluenceDocumentOptions, ConfluencePageID)
 - **environment.py** - Configuration and error types (ConfluenceConnectionProperties, custom exceptions)
 - **metadata.py** - Site and page metadata structures
-- **macros.py** - Macro expansion facility; shorthand syntax (`<!-- macro:name: params -->`) for common Confluence macros (jira, status, emoticon) that expand to CSF comments
+- **macros.py** - Macro expansion facility; shorthand syntax (`<!-- macro:name: params -->`) for common Confluence macros (jira, status, emoticon, embed_html) that expand to CSF comments
+  - Expanders are registered either as `register()` (signature `(params)`) or `register_contextual()` (signature `(params, context)`). Membership in the contextual registry — never signature introspection — decides which form is called; `expand()` swallows all exceptions, so a signature mismatch would fail silently.
+  - `MacroContext` carries `base_dir` (the source Markdown file's directory) and `root_dir`, threaded from `ConfluenceDocument.__init__`. This is how `embed_html` resolves file paths the same way images and attachments do, and enforces that they stay within the documentation root.
+  - `embed_html` entity-escapes the file into a double-quoted iframe `srcdoc` (no base64, no `<script>`). An inline decoder script was tried first and failed on the live REST API: Confluence's storage sanitizer drops the whole `plain-text-body` when it contains a `<script>`, and html-macro bodies are injected via `innerHTML` where inline scripts never run. Escaping `<`/`>` also removes every literal `-->` and `]]>` from the file content, which would otherwise truncate the `<!-- csf: -->` carrier or close the CDATA.
+  - The verbatim payload keeps its newlines only because `ConfluenceStorageFormatConverter.transform()` skips its newline-to-space rewrite for `ac:plain-text-body` (a preformatted body). Without that guard the rewrite both flattens newlines (killing `//` line comments) and collapses the CDATA node to escaped text. Any future macro emitting multi-line verbatim content depends on this guard — see `cdocs/2026-07-23-embed-html-macro-design.md`.
+  - Tests for content-emitting macros must assert against the final `doc.xhtml()`, not the expander's return value; the corrupting transforms all run *after* the macro layer. Confluence's own storage sanitizer is a further stage that only a live publish reveals.
 - **skill.py** - Claude Code skill generation; `generate_skill()` writes a `.md` skill file from the package's own documentation
 
 ### Page Association

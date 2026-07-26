@@ -1,0 +1,23 @@
+<ac:structured-macro ac:name="info" ac:schema-version="1"><ac:rich-text-body><p>This page has been generated with a tool.</p></ac:rich-text-body></ac:structured-macro><h1>Embedded HTML</h1><ac:structured-macro ac:name="html"><ac:plain-text-body><![CDATA[<iframe srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;title&gt;Embedded fixture&lt;/title&gt;
+&lt;style&gt;
+body { font-family: sans-serif; color: #333; }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;!-- a cosmetic section comment --&gt;
+&lt;h1&gt;Fixture &amp;amp; friends&lt;/h1&gt;
+&lt;p&gt;It's a self-contained page.&lt;/p&gt;
+&lt;script&gt;
+// a line comment that must not swallow the next statement
+const marker = &quot;--&gt;&quot;;
+const template = &quot;&lt;!-- kept verbatim --&gt;&quot;;
+const terminator = &quot;]]&gt;&quot;;
+window.ready = true;
+&lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+" style="width:90%;height:600px;border:0" loading="lazy" title="Fixture Explorer"></iframe>]]></ac:plain-text-body></ac:structured-macro>

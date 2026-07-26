@@ -1974,8 +1974,11 @@ class ConfluenceStorageFormatConverter(NodeVisitor):
         Transforms an HTML element tree obtained from a Markdown document into a Confluence Storage Format element tree.
         """
 
-        # replace line breaks with regular space in element text to minimize phantom changes
-        if child.text:
+        # replace line breaks with regular space in element text to minimize phantom changes;
+        # a plain-text-body is verbatim (code and html macro bodies), so flattening its newlines
+        # would corrupt the content, and assigning to `.text` would also collapse its CDATA section
+        is_verbatim_body = isinstance(child.tag, str) and child.tag == AC_ATTR("plain-text-body")
+        if child.text and not is_verbatim_body:
             child.text = child.text.replace("\n", " ")
         if child.tail:
             child.tail = child.tail.replace("\n", " ")
@@ -2241,8 +2244,9 @@ class ConfluenceDocument:
         lines.append(document.text)
         text = "\n".join(lines)
 
-        # expand macro comments before markdown conversion
-        text = expand_macros(text)
+        # expand macro comments before markdown conversion; macros that reference files
+        # (e.g. `embed_html`) resolve them relative to the source document, bounded by the root
+        text = expand_macros(text, base_dir=path.parent, root_dir=root_dir)
 
         # parse Markdown document and convert to HTML
         html = markdown_to_html(text)
