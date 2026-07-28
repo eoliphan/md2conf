@@ -11,29 +11,7 @@ from unittest.mock import Mock
 
 import requests
 
-from md2conf.api import ConfluenceSession
-from md2conf.environment import ConfluenceConnectionProperties
-
-
-def _make_session(deployment_type: str) -> ConfluenceSession:
-    """Builds a ConfluenceSession without any network calls."""
-    session_mock = Mock(spec=requests.Session)
-    properties = ConfluenceConnectionProperties(
-        domain="example.com",
-        base_path="/wiki/",
-        user_name="user",
-        api_key="key",
-        space_key="TEST",
-        deployment_type=deployment_type,
-    )
-    return ConfluenceSession(
-        session_mock,
-        properties=properties,
-        api_url="https://example.com/wiki/",
-        domain="example.com",
-        base_path="/wiki/",
-        space_key="TEST",
-    )
+from tests.utility import make_session as _make_session
 
 
 def _http_error_response() -> Mock:

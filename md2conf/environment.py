@@ -18,6 +18,10 @@ class PageError(ValueError):
     "Raised in case there is an issue with a Confluence page."
 
 
+class PageCollisionError(PageError):
+    "Raised when a page lookup resolves to a page outside the tree being published."
+
+
 class ConfluenceError(RuntimeError):
     "Raised when a Confluence API call fails."
 

@@ -916,6 +916,10 @@ options:
                         Confluence user mentions (default: enabled).
   --no-user-mentions    Render email links as regular links instead of
                         Confluence user mentions.
+  --allow-adopt PAGE_ID
+                        Authorize adopting the Confluence page with this ID
+                        even though it lies outside the tree being published.
+                        Repeatable.
 ```
 
 ### Confluence REST API v1 vs. v2
