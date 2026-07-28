@@ -252,6 +252,8 @@ If a Markdown file doesn't yet pair up with a Confluence page, *md2conf* creates
 
 The top-level directory to be synchronized must always have an `index.md` or `README.md`, which maps to the root of the corresponding sub-tree in Confluence (specified with `-r`).
 
+If multiple projects publish into the same Confluence space, give each project its own `-r` root page. The root page you pass with `-r` is what bounds ownership: *md2conf* only ever creates, adopts or moves pages that are the root page itself or one of its descendants, and refuses to touch a page that lies outside that tree. Two projects that share one root page cannot be told apart by this check, so each project needs a root page of its own.
+
 The concepts above are illustrated in the following sections.
 
 #### File-system directory hierarchy
