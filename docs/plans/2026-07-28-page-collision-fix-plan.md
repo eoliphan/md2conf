@@ -18,7 +18,8 @@
 - **Minimum Python: 3.9.** PEP 585 builtin generics (`list[str]`, `dict[str, str]`) are fine; `X | Y` unions are **not** — use `Optional[X]`.
 - **Tests use `unittest`**, never pytest. Single test: `python -m unittest tests.test_module.TestClass.test_name -v`.
 - **Full unit suite:** `python -m unittest discover -s tests` — green before any commit.
-- **Static checks:** `./check.sh` (ruff + mypy strict over `md2conf`, `tests`, `integration_tests`). Must pass before any commit. **mypy is strict** — annotate every helper; no bare `dict`, no `object` where a real type exists.
+- **Static checks:** `./check.sh` (ruff + mypy strict over `md2conf`, `tests`, `integration_tests`). **It does not pass on `master` — there are 82 pre-existing mypy errors.** The bar is therefore *no new errors versus the `master` baseline*, not a clean exit. Capture the baseline once, diff against it, and confirm your delta is empty. **mypy is strict** — annotate every helper; no bare `dict`, no `object` where a real type exists.
+- **Test imports:** use `from tests.utility import ...`, not `from .utility import ...`. Relative imports break under `python -m unittest discover -s tests`, the canonical command.
 - **Line length 160.**
 - `LOGGER = logging.getLogger(__name__)` per module; `@override` from `md2conf/extra.py` on overrides; custom exceptions in `md2conf/environment.py`.
 - **Both deployment types** tested for anything touching the API, per CLAUDE.md.
