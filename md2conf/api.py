@@ -27,7 +27,7 @@ from requests.adapters import HTTPAdapter
 from strong_typing.core import JsonType
 from strong_typing.serialization import DeserializerOptions, json_dump_string, json_to_object, object_to_json
 
-from .environment import ArgumentError, ConfluenceConnectionProperties, ConfluenceError, PageError
+from .environment import ArgumentError, ConfluenceConnectionProperties, ConfluenceError, PageCollisionError, PageError
 from .extra import override
 from .metadata import ConfluenceSiteMetadata
 
@@ -1800,8 +1800,12 @@ class ConfluenceSession:
         if len(results) == 1:
             result = typing.cast(dict[str, JsonType], results[0])
             return str(result["id"])
-        else:
+        elif not results:
             return None
+        else:
+            items = [typing.cast(dict[str, JsonType], item) for item in results]
+            matches = ", ".join(f"{item['id']} (status: {item.get('status')})" for item in items)
+            raise PageCollisionError(f"ambiguous page lookup: {len(results)} pages in space {space_key} match the title {title!r}: {matches}")
 
     def page_exists(
         self,
@@ -1845,8 +1849,11 @@ class ConfluenceSession:
 
             if len(results) == 1:
                 return results[0].id
-            else:
+            elif not results:
                 return None
+            else:
+                matches = ", ".join(f"{item.id} (status: {item.status})" for item in results)
+                raise PageCollisionError(f"ambiguous page lookup: {len(results)} pages in space {space_id} match the title {title!r}: {matches}")
 
     def get_or_create_page(self, title: str, parent_id: str) -> ConfluencePage:
         """
