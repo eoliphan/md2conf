@@ -12,18 +12,20 @@ from typing import Optional
 from unittest.mock import Mock
 
 from md2conf.ancestry import AncestryResolver
-from md2conf.api import ConfluenceSession
-from md2conf.domain import ConfluenceDocumentOptions
-from md2conf.environment import PageCollisionError
+from md2conf.api import ConfluenceSession, ConfluenceStatus
+from md2conf.domain import ConfluenceDocumentOptions, ConfluencePageID
+from md2conf.environment import PageCollisionError, PageError
 from md2conf.metadata import ConfluenceSiteMetadata
+from md2conf.processor import DocumentNode
 from md2conf.publisher import SynchronizingProcessor
 
 
-def _properties(page_id: str, title: str, parent_id: Optional[str]) -> Mock:
+def _properties(page_id: str, title: str, parent_id: Optional[str], *, space_id: str = "SPACE-1") -> Mock:
     properties = Mock()
     properties.id = page_id
     properties.title = title
     properties.parentId = parent_id
+    properties.spaceId = space_id
     properties.status = "current"
     return properties
 
@@ -83,6 +85,141 @@ class TestContainmentGuard(unittest.TestCase):
 
         with self.assertRaises(PageCollisionError):
             processor._assert_owned("901", "Another Foreign Page", "200", Path("/docs/b.md"))
+
+    def test_ancestry_api_errors_propagate_rather_than_permitting_adoption(self) -> None:
+        """A transient API failure must abort the publish, never silently disable the guard."""
+
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+        api.get_ancestor_ids.side_effect = RuntimeError("Confluence unavailable")
+
+        with self.assertRaises(RuntimeError):
+            processor._assert_owned("900", "Foreign Page", "200", Path("/docs/a.md"))
+
+
+class TestGuardStopsWritesEndToEnd(unittest.TestCase):
+    CHAINS = {"100": [], "200": ["100"], "800": [], "900": ["800"]}
+
+    def test_explicit_foreign_id_writes_nothing(self) -> None:
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, "Foreign Page", "800")
+
+        node = DocumentNode(
+            absolute_path=Path("/docs/source-inventory.md"),
+            page_id="900",
+            space_key=None,
+            title=None,
+            synchronized=True,
+            users=set(),
+        )
+
+        with self.assertRaises(PageCollisionError):
+            processor._synchronize_subtree(node, ConfluencePageID("200"), "200", {}, is_root=False)
+
+        api.move_page.assert_not_called()
+        api.create_page.assert_not_called()
+        api.update_page.assert_not_called()
+        api.move_page_before_sibling.assert_not_called()
+        api.move_page_after_sibling.assert_not_called()
+
+    def test_title_match_on_foreign_page_writes_nothing(self) -> None:
+        """A same-titled page owned by another effort must be refused before it is adopted."""
+
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, "Overview", "800")
+        api.page_exists.return_value = "900"
+
+        node = DocumentNode(
+            absolute_path=Path("/docs/overview.md"),
+            page_id=None,
+            space_key=None,
+            title="Overview",
+            synchronized=True,
+        )
+
+        with self.assertRaises(PageCollisionError):
+            processor._synchronize_subtree(node, ConfluencePageID("200"), "200", {}, is_root=False)
+
+        # the guard must fire before the page is fetched for adoption
+        api.get_page.assert_not_called()
+        api.move_page.assert_not_called()
+        api.create_page.assert_not_called()
+
+    def test_title_lookup_is_scoped_to_the_parent_space(self) -> None:
+        """Dropping the parent-properties lookup would let the title match a page in another space."""
+
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+        processor._update_markdown = Mock()  # type: ignore[method-assign]
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, f"Page {page_id}", "100", space_id="SPACE-1")
+        api.page_exists.return_value = None
+        api.create_page.return_value = _properties("400", "Overview", "200", space_id="SPACE-1")
+        api.get_child_page_ids.return_value = []
+
+        node = DocumentNode(
+            absolute_path=Path("/docs/overview.md"),
+            page_id=None,
+            space_key=None,
+            title="Overview",
+            synchronized=True,
+        )
+
+        processor._synchronize_subtree(node, ConfluencePageID("200"), "200", {}, is_root=False)
+
+        api.page_exists.assert_called_once_with("Overview", space_id="SPACE-1")
+
+    def test_archived_page_still_raises_after_the_inlining(self) -> None:
+        """The archived-page check must survive the removal of `get_or_create_page`."""
+
+        processor, api = _processor({"100": [], "200": ["100"], "300": ["100", "200"]})
+        processor.ancestry = AncestryResolver(api)
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, "Child", "200")
+        api.page_exists.return_value = "300"  # in-tree, so the containment guard passes
+        archived = _properties("300", "Child", "200")
+        archived.status = ConfluenceStatus.ARCHIVED
+        api.get_page.return_value = archived
+
+        node = DocumentNode(
+            absolute_path=Path("/docs/a.md"),
+            page_id=None,
+            space_key=None,
+            title="Child",
+            synchronized=True,
+        )
+
+        with self.assertRaises(PageError) as context:
+            processor._synchronize_subtree(node, ConfluencePageID("200"), "200", {}, is_root=False)
+
+        self.assertNotIsInstance(context.exception, PageCollisionError)
+        self.assertIn("archived", str(context.exception))
+
+
+class TestDescendantBoundary(unittest.TestCase):
+    """
+    100 (anchor / -r)
+     ├── 200 (managed root: the root document's page)
+     └── 150 (a sibling sub-tree owned by another effort)
+    """
+
+    CHAINS = {"100": [], "200": ["100"], "150": ["100"]}
+
+    def test_descendants_are_bounded_by_the_resolved_root_not_the_anchor(self) -> None:
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, f"Page {page_id}", "100")
+        api.get_child_page_ids.return_value = []
+
+        root = DocumentNode(absolute_path=Path("/docs/index.md"), page_id="200", space_key=None, title=None, synchronized=True)
+        root.add_child(DocumentNode(absolute_path=Path("/docs/a.md"), page_id="150", space_key=None, title=None, synchronized=True))
+
+        # page 150 is inside the -r anchor (100) but outside the resolved root (200), so it must be refused
+        with self.assertRaises(PageCollisionError) as context:
+            processor._synchronize_subtree(root, ConfluencePageID("100"), "100", {}, is_root=True)
+
+        self.assertIn("150", str(context.exception))
+        self.assertIn("(200)", str(context.exception))
 
 
 if __name__ == "__main__":
