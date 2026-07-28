@@ -25,9 +25,9 @@
   1. **`rtk` condenses mypy output.** This environment wraps commands with `rtk`, which reformats mypy's output so error lines lose the `error:` prefix. `grep -c "error:"` then returns `0` on a file with real errors. **Always measure mypy via `rtk proxy`:**
 
      ```bash
-     rtk proxy python -m mypy md2conf          # baseline: 26 errors
-     rtk proxy python -m mypy tests            # baseline: 33 errors
-     rtk proxy python -m mypy integration_tests # baseline: 28 errors
+     rtk proxy python -m mypy md2conf          # baseline: 25 errors
+     rtk proxy python -m mypy tests            # baseline: 30 errors
+     rtk proxy python -m mypy integration_tests # baseline: 27 errors
      ```
 
      Measure **per target**, as `check.sh` does — a single combined invocation deduplicates cross-referenced files and reports 34, which is not comparable to the per-target baseline of 82.
