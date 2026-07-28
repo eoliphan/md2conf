@@ -168,7 +168,7 @@ P(not 32 chars) = 1 - (1 - 16/256)^16 = 1 - (15/16)^16 ≈ 0.644
 
 Two consequences:
 
-- **The audit in §5 cannot search for a fixed 32-hex pattern** — it would miss roughly two thirds of the landmine pages. The pattern must be `\[[0-9a-f]{25,32}\]` or similar.
+- **The audit in §5 cannot search for a fixed 32-hex pattern** — it would miss roughly two thirds of the landmine pages. Use `\[[0-9a-f]{16,32}\]`, where 16 is the true theoretical floor; see §5 step 4.
 - Unpadded concatenation is not injective in principle (bytes `0a bc` and `ab 0c` both render `abc`), adding a theoretical collision channel on top of md5. Empirically this is negligible: **zero collisions in 400,000 generated paths.** Do not present it as a contributing cause of the incident — it is a latent formatting bug worth fixing on its own merits, not a second collision vector in practice.
 
 ---
