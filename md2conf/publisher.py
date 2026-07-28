@@ -10,12 +10,13 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from .ancestry import AncestryResolver
 from .api import ConfluenceContentProperty, ConfluenceLabel, ConfluenceSession, ConfluenceStatus
 from .collection import ConfluenceUserCollection
 from .converter import ConfluenceDocument, attachment_name, get_volatile_attributes, get_volatile_elements
 from .csf import AC_ATTR, elements_from_string
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
-from .environment import PageError
+from .environment import PageCollisionError, PageError
 from .extra import override, path_relative_to
 from .kroki import KrokiServer
 from .metadata import ConfluencePageMetadata
@@ -31,6 +32,7 @@ class SynchronizingProcessor(Processor):
     """
 
     api: ConfluenceSession
+    ancestry: AncestryResolver
 
     def __init__(self, api: ConfluenceSession, options: ConfluenceDocumentOptions, root_dir: Path, kroki_server: Optional[KrokiServer] = None) -> None:
         """
@@ -44,6 +46,38 @@ class SynchronizingProcessor(Processor):
 
         super().__init__(options, api.site, root_dir, kroki_server=kroki_server)
         self.api = api
+        self.ancestry = AncestryResolver(api)
+
+    def _assert_owned(self, page_id: str, page_title: str, managed_root_id: str, source_path: Path) -> None:
+        """
+        Verifies that a page found by lookup belongs to the tree being published.
+
+        :param page_id: Confluence page ID the lookup resolved to.
+        :param page_title: Title of that page, for diagnostics.
+        :param managed_root_id: Confluence page ID bounding the tree being published.
+        :param source_path: Markdown document whose publication triggered the lookup.
+        """
+
+        if page_id in self.options.allow_adopt:
+            LOGGER.warning(
+                "Adopting page %s ('%s') outside the tree rooted at %s, authorized by --allow-adopt",
+                page_id,
+                page_title,
+                managed_root_id,
+            )
+            return
+
+        if self.ancestry.contains(managed_root_id, page_id):
+            return
+
+        ancestors = self.ancestry.ancestors(page_id) or ["<none>"]
+        raise PageCollisionError(
+            f"refusing to publish {source_path} to Confluence page {page_id} ('{page_title}'): "
+            f"the page is not the root of the tree being published ({managed_root_id}) nor a descendant of it; "
+            f"its ancestors are {' > '.join(ancestors)}. "
+            f"This usually means another effort owns the page. "
+            f"If adopting it is intended, re-run with --allow-adopt {page_id}"
+        )
 
     @override
     def _synchronize_structure(self, root: DocumentNode) -> dict[str, list[str]]:
