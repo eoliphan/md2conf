@@ -1855,24 +1855,6 @@ class ConfluenceSession:
                 matches = ", ".join(f"{item.id} (status: {item.status})" for item in results)
                 raise PageCollisionError(f"ambiguous page lookup: {len(results)} pages in space {space_id} match the title {title!r}: {matches}")
 
-    def get_or_create_page(self, title: str, parent_id: str) -> ConfluencePage:
-        """
-        Finds a page with the given title, or creates a new page if no such page exists.
-
-        :param title: Page title. Pages in the same Confluence space must have a unique title.
-        :param parent_id: Identifies the parent page for a new child page.
-        """
-
-        parent_page = self.get_page_properties(parent_id)
-        page_id = self.page_exists(title, space_id=parent_page.spaceId)
-
-        if page_id is not None:
-            LOGGER.debug("Retrieving existing page: %s", page_id)
-            return self.get_page(page_id)
-        else:
-            LOGGER.debug("Creating new page with title: %s", title)
-            return self.create_page(parent_id, title, "")
-
     def get_labels(self, page_id: str) -> list[ConfluenceIdentifiedLabel]:
         """
         Retrieves labels for a Confluence page.

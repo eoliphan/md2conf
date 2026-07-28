@@ -387,5 +387,87 @@ class TestIsRootThreadedToTheGuard(unittest.TestCase):
         api.move_page.assert_not_called()
 
 
+class TestUnsafePrimitiveRemoved(unittest.TestCase):
+    def test_get_or_create_page_is_gone(self) -> None:
+        self.assertFalse(hasattr(ConfluenceSession, "get_or_create_page"))
+
+
+class TestIncidentScenario(unittest.TestCase):
+    """
+    The GSSPACE incident topology.
+
+        100  Effort A anchor (-r)
+         └── 200  Effort A root document
+        800  unrelated tree
+         └── 900  Effort B's 'source-inventory' page
+    """
+
+    CHAINS = {"100": [], "200": ["100"], "800": [], "900": ["800"]}
+
+    def test_poisoned_page_id_is_refused(self) -> None:
+        from md2conf.ancestry import AncestryResolver
+
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+
+        with self.assertRaises(PageCollisionError):
+            processor._assert_owned("900", "source-inventory", "200", Path("/effort-a/00-inception/source-inventory.md"))
+
+        api.move_page.assert_not_called()
+
+
+class TestSharedAnchorTopologies(unittest.TestCase):
+    """
+    Design cases 11 and 11b — the two topologies where a naive boundary fails open.
+
+        100  shared -r container
+         ├── 200  Effort A root document
+         │    └── 300  Effort A child
+         └── 500  Effort B root document
+              └── 600  Effort B child
+    """
+
+    CHAINS = {"100": [], "200": ["100"], "300": ["100", "200"], "500": ["100"], "600": ["100", "500"]}
+
+    def test_11_shared_anchor_poisoned_id_into_sibling_effort_is_refused(self) -> None:
+        """
+        Both efforts publish under the same -r (100). Effort A's managed root is its own resolved root
+        document (200), NOT the anchor. A poisoned ID pointing at Effort B's child (600) must be refused
+        even though 600 IS a descendant of the shared anchor.
+        """
+
+        from md2conf.ancestry import AncestryResolver
+
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+
+        with self.assertRaises(PageCollisionError):
+            processor._assert_owned("600", "Effort B Child", "200", Path("/effort-a/a.md"))
+
+        # the same page IS contained by the anchor -- proving the boundary is not the anchor
+        self.assertTrue(processor.ancestry.contains("100", "600"))
+
+    def test_11b_root_node_resolving_to_a_foreign_root_is_refused(self) -> None:
+        """
+        The collapse case. Both efforts publish 00-inception/, so both root documents synthesize the SAME
+        title and Effort A's root node can title-resolve to Effort B's root page (500).
+
+        Stage 1 must check the root node against its own anchor. Without it, Effort A's managed root becomes
+        500, every later descendant check passes, and Effort A publishes its whole tree inside Effort B.
+        """
+
+        from md2conf.ancestry import AncestryResolver
+
+        chains = dict(self.CHAINS)
+        chains["700"] = []
+        chains["500"] = ["700"]
+
+        processor, api = _processor(chains)
+        processor.ancestry = AncestryResolver(api)
+
+        with self.assertRaises(PageCollisionError):
+            processor._assert_owned("500", "index", "100", Path("/effort-a/00-inception/index.md"))
+
+
 if __name__ == "__main__":
     unittest.main()
