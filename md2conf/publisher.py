@@ -46,7 +46,6 @@ class SynchronizingProcessor(Processor):
 
         super().__init__(options, api.site, root_dir, kroki_server=kroki_server)
         self.api = api
-        self.ancestry = AncestryResolver(api)
 
     def _assert_owned(self, page_id: str, page_title: str, managed_root_id: str, source_path: Path) -> None:
         """
@@ -76,7 +75,8 @@ class SynchronizingProcessor(Processor):
             f"the page is not the root of the tree being published ({managed_root_id}) nor a descendant of it; "
             f"its ancestors are {' > '.join(ancestors)}. "
             f"This usually means another effort owns the page. "
-            f"If adopting it is intended, re-run with --allow-adopt {page_id}"
+            f"Set an explicit 'title:' in the document's front matter, or publish under a different -r root page. "
+            f"Only if you genuinely intend to take over a page owned by another effort, re-run with --allow-adopt {page_id}"
         )
 
     @override
@@ -102,6 +102,11 @@ class SynchronizingProcessor(Processor):
         elif root_id is not None:
             real_id = root_id
         elif root.page_id is not None:
+            LOGGER.warning(
+                "No -r root page was given; the root page ID is taken from %s and cannot be independently validated. "
+                "When several projects publish into one Confluence space, pass -r so ownership can be enforced.",
+                root.absolute_path,
+            )
             real_id = ConfluencePageID(root.page_id)
         else:
             raise NotImplementedError("condition not exhaustive")

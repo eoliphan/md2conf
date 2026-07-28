@@ -9,13 +9,13 @@ Copyright 2022-2025, Levente Hunyadi
 import unittest
 from pathlib import Path
 from typing import Optional
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from md2conf.ancestry import AncestryResolver
 from md2conf.api import ConfluenceSession, ConfluenceStatus
 from md2conf.domain import ConfluenceDocumentOptions, ConfluencePageID
 from md2conf.environment import PageCollisionError, PageError
-from md2conf.metadata import ConfluenceSiteMetadata
+from md2conf.metadata import ConfluencePageMetadata, ConfluenceSiteMetadata
 from md2conf.processor import DocumentNode
 from md2conf.publisher import SynchronizingProcessor
 
@@ -467,6 +467,75 @@ class TestSharedAnchorTopologies(unittest.TestCase):
 
         with self.assertRaises(PageCollisionError):
             processor._assert_owned("500", "index", "100", Path("/effort-a/00-inception/index.md"))
+
+
+class TestNoRootPageWarning(unittest.TestCase):
+    """
+    Publishing without `-r` derives the root page ID from the root document itself, which makes the
+    containment guard evaluate `contains(x, x)` for the root -- always true. This does not add
+    enforcement (that would break the zero-config workflow), only a warning that ownership of the
+    root page could not be independently validated.
+    """
+
+    CHAINS: dict[str, list[str]] = {"200": []}
+
+    def test_warns_when_root_page_id_comes_from_the_document_not_minus_r(self) -> None:
+        processor, api = _processor(self.CHAINS)
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, "Root", None)
+        api.get_child_page_ids.return_value = []
+        processor._update_markdown = Mock()  # type: ignore[method-assign]
+
+        root = DocumentNode(absolute_path=Path("/docs/index.md"), page_id="200", space_key=None, title=None, synchronized=True)
+
+        with self.assertLogs("md2conf.publisher", level="WARNING") as logs:
+            processor._synchronize_structure(root)
+
+        self.assertTrue(any("-r" in message for message in logs.output))
+
+    def test_no_warning_when_minus_r_is_supplied(self) -> None:
+        api = Mock(spec=ConfluenceSession)
+        api.site = ConfluenceSiteMetadata(domain="example.com", base_path="/wiki/", space_key="TEST")
+        api.get_ancestor_ids.side_effect = lambda page_id: self.CHAINS[page_id]
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, "Root", None)
+        api.get_child_page_ids.return_value = []
+
+        processor = SynchronizingProcessor(api, ConfluenceDocumentOptions(root_page_id=ConfluencePageID("200")), Path("/docs"))
+        processor._update_markdown = Mock()  # type: ignore[method-assign]
+
+        root = DocumentNode(absolute_path=Path("/docs/index.md"), page_id="200", space_key=None, title=None, synchronized=True)
+
+        with patch("md2conf.publisher.LOGGER.warning") as warning:
+            processor._synchronize_structure(root)
+
+        warning.assert_not_called()
+
+
+class TestUpdatePageAbortsOnAmbiguousTitleMatch(unittest.TestCase):
+    """
+    `_update_page` calls `page_exists` to check whether a renamed title collides with another page.
+    Since `page_exists` now raises `PageCollisionError` on an ambiguous match, that error must abort
+    the content sync rather than being swallowed.
+    """
+
+    def test_ambiguous_title_match_propagates(self) -> None:
+        processor, api = _processor({})
+        processor.page_metadata.add(
+            Path("/docs/a.md"),
+            ConfluencePageMetadata(page_id="200", space_key="TEST", title="Old Title", synchronized=True),
+        )
+
+        document = Mock()
+        document.title = "New Title"
+        document.images = []
+        document.embedded_files = {}
+
+        api.space_key_to_id.return_value = "SPACE-1"
+        api.page_exists.side_effect = PageCollisionError("ambiguous page lookup: 2 pages in space SPACE-1 match the title 'New Title': ['300', '400']")
+
+        with self.assertRaises(PageCollisionError):
+            processor._update_page(ConfluencePageID("200"), document, Path("/docs/a.md"))
+
+        api.update_page.assert_not_called()
 
 
 if __name__ == "__main__":
