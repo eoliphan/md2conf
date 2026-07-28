@@ -26,11 +26,11 @@
 
      ```bash
      rtk proxy python -m mypy md2conf          # baseline: 25 errors
-     rtk proxy python -m mypy tests            # baseline: 32 errors
+     rtk proxy python -m mypy tests            # baseline: 30 errors (was 32 before Task 3 suppressed two)
      rtk proxy python -m mypy integration_tests # baseline: 27 errors
      ```
 
-     Measure **per target**, as `check.sh` does — a single combined invocation deduplicates cross-referenced files and reports 34, which is not comparable to the per-target baseline of 84.
+     Measure **per target**, as `check.sh` does — a single combined invocation deduplicates cross-referenced files and reports 34, which is not comparable to the per-target baseline of 82.
 
   2. **Ruff output is not `error:`-shaped at all.** No grep for `error:` can ever see it. Run it standalone and read the count:
 
