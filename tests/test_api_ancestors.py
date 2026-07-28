@@ -8,7 +8,7 @@ Copyright 2022-2025, Levente Hunyadi
 
 import unittest
 import unittest.mock
-from typing import Any
+from typing import Any, Optional
 from unittest.mock import Mock
 
 import requests
@@ -65,6 +65,50 @@ class TestV1AncestorExpansion(unittest.TestCase):
 
         self.assertIn("ancestors", _requested_url(transport))
         self.assertEqual(page.parentId, "200")
+
+
+class TestGetAncestorIds(unittest.TestCase):
+    def test_v1_returns_full_chain_root_first(self) -> None:
+        session = make_session("datacenter")
+        transport: Mock = session.session  # type: ignore[assignment]
+        transport.get.return_value = _json_response(_v1_page("300", "Child", ["100", "200"]))
+
+        self.assertEqual(session.get_ancestor_ids("300"), ["100", "200"])
+
+    def test_v1_root_page_has_no_ancestors(self) -> None:
+        session = make_session("datacenter")
+        transport: Mock = session.session  # type: ignore[assignment]
+        transport.get.return_value = _json_response(_v1_page("100", "Root", []))
+
+        self.assertEqual(session.get_ancestor_ids("100"), [])
+
+    def test_v2_walks_parent_chain_root_first(self) -> None:
+        session = make_session("cloud")
+        chain: dict[str, Optional[str]] = {"300": "200", "200": "100", "100": None}
+
+        def fake_properties(page_id: str) -> Mock:
+            properties = Mock()
+            properties.id = page_id
+            properties.parentId = chain[page_id]
+            return properties
+
+        with unittest.mock.patch.object(session, "get_page_properties", side_effect=fake_properties):
+            self.assertEqual(session.get_ancestor_ids("300"), ["100", "200"])
+
+    def test_v2_depth_limit_raises_rather_than_truncating(self) -> None:
+        from md2conf.environment import ConfluenceError
+
+        session = make_session("cloud")
+
+        def cyclic_properties(page_id: str) -> Mock:
+            properties = Mock()
+            properties.id = page_id
+            properties.parentId = "999" if page_id == "888" else "888"
+            return properties
+
+        with unittest.mock.patch.object(session, "get_page_properties", side_effect=cyclic_properties):
+            with self.assertRaises(ConfluenceError):
+                session.get_ancestor_ids("777")
 
 
 if __name__ == "__main__":

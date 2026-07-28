@@ -72,6 +72,9 @@ def build_url(base_url: str, query: Optional[dict[str, str]] = None) -> str:
 
 LOGGER = logging.getLogger(__name__)
 
+ANCESTOR_DEPTH_LIMIT = 100
+"Maximum page hierarchy depth traversed when resolving ancestors; a stop against cyclic parent data."
+
 
 def _retry_request(
     func: Callable[..., requests.Response],
@@ -1193,6 +1196,44 @@ class ConfluenceSession:
         """
 
         return self.get_page_properties(page_id).version.number
+
+    def get_ancestor_ids(self, page_id: str) -> list[str]:
+        """
+        Retrieves the ancestors of a Confluence page, ordered outermost first.
+
+        The page itself is not included in the result.
+
+        :param page_id: The Confluence page ID.
+        :returns: Ancestor page IDs, from the topmost ancestor down to the immediate parent.
+        """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_ancestor_ids_v1(page_id)
+        else:
+            return self._get_ancestor_ids_v2(page_id)
+
+    def _get_ancestor_ids_v1(self, page_id: str) -> list[str]:
+        "Retrieves ancestors using the v1 API, which returns the whole chain in a single response."
+
+        path = f"/content/{page_id}"
+        query = {"expand": "ancestors"}
+        response = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
+        ancestors = typing.cast(list[JsonType], response.get("ancestors", []))
+        return [str(typing.cast(dict[str, JsonType], item)["id"]) for item in ancestors]
+
+    def _get_ancestor_ids_v2(self, page_id: str) -> list[str]:
+        "Retrieves ancestors using the v2 API by walking up the parent chain."
+
+        ancestors: list[str] = []
+        current = page_id
+        for _ in range(ANCESTOR_DEPTH_LIMIT):
+            parent_id = self.get_page_properties(current).parentId
+            if parent_id is None:
+                ancestors.reverse()
+                return ancestors
+            ancestors.append(parent_id)
+            current = parent_id
+
+        raise ConfluenceError(f"ancestor chain for page {page_id} exceeds the depth limit of {ANCESTOR_DEPTH_LIMIT}; the page hierarchy may contain a cycle")
 
     def _get_users_v1(self, name: str) -> list["ConfluenceUser"]:
         """
