@@ -203,7 +203,7 @@ def make_session(deployment_type: str) -> ConfluenceSession:
 In `tests/test_api_move.py`, delete the local `_make_session` (lines 19-37) and import the shared one:
 
 ```python
-from .utility import make_session as _make_session
+from tests.utility import make_session as _make_session
 ```
 
 - [ ] **Step 8: Run the full suite and static checks**
@@ -252,7 +252,7 @@ from unittest.mock import Mock
 
 import requests
 
-from .utility import make_session
+from tests.utility import make_session
 
 
 def _json_response(payload: dict[str, Any]) -> Mock:
@@ -518,7 +518,7 @@ import requests
 
 from md2conf.environment import PageCollisionError
 
-from .utility import make_session
+from tests.utility import make_session
 
 
 def _json_response(payload: dict[str, Any]) -> Mock:
