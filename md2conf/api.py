@@ -1130,7 +1130,7 @@ class ConfluenceSession:
         """
         Retrieves Confluence wiki page details and content using v1 API.
 
-        v1 API endpoint: GET /rest/api/content/{pageId}?expand=body.storage,version,space
+        v1 API endpoint: GET /rest/api/content/{pageId}?expand=body.storage,version,space,ancestors
 
         :param page_id: The Confluence page ID.
         :returns: Confluence page info and content.
@@ -1138,7 +1138,7 @@ class ConfluenceSession:
         from .api_mappers import map_page_v1_to_domain
 
         path = f"/content/{page_id}"
-        query = {"expand": "body.storage,version,space"}
+        query = {"expand": "body.storage,version,space,ancestors"}
         response = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
         return map_page_v1_to_domain(response)
 
@@ -1159,7 +1159,7 @@ class ConfluenceSession:
         """
         Retrieves Confluence wiki page details using v1 API.
 
-        v1 API endpoint: GET /rest/api/content/{pageId}?expand=version,space,history
+        v1 API endpoint: GET /rest/api/content/{pageId}?expand=version,space,history,ancestors
 
         :param page_id: The Confluence page ID.
         :returns: Confluence page info.
@@ -1167,7 +1167,7 @@ class ConfluenceSession:
         from .api_mappers import map_page_properties_v1_to_domain
 
         path = f"/content/{page_id}"
-        query = {"expand": "version,space,history"}
+        query = {"expand": "version,space,history,ancestors"}
         response = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
         return map_page_properties_v1_to_domain(response)
 
