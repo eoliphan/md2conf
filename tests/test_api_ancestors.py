@@ -48,7 +48,7 @@ def _requested_url(transport: Mock) -> str:
 class TestV1AncestorExpansion(unittest.TestCase):
     def test_get_page_properties_v1_requests_ancestors(self) -> None:
         session = make_session("datacenter")
-        transport: Mock = session.session
+        transport: Mock = session.session  # type: ignore[assignment]
         transport.get.return_value = _json_response(_v1_page("300", "Child", ["100", "200"]))
 
         properties = session.get_page_properties("300")
@@ -58,7 +58,7 @@ class TestV1AncestorExpansion(unittest.TestCase):
 
     def test_get_page_v1_requests_ancestors(self) -> None:
         session = make_session("datacenter")
-        transport: Mock = session.session
+        transport: Mock = session.session  # type: ignore[assignment]
         transport.get.return_value = _json_response(_v1_page("300", "Child", ["100", "200"]))
 
         page = session.get_page("300")
