@@ -8,7 +8,7 @@ Copyright 2022-2025, Levente Hunyadi
 
 import unittest
 import unittest.mock
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import Mock
 
 import requests
