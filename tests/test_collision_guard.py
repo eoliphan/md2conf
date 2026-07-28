@@ -334,5 +334,58 @@ class TestTitleBranchReparentsEndToEnd(unittest.TestCase):
         self.assertGreater(api.get_ancestor_ids.call_count, calls_after_move)
 
 
+class TestIsRootThreadedToTheGuard(unittest.TestCase):
+    """
+    The `is_root` flag must reach `_reparent_if_needed` from `_synchronize_subtree`'s explicit-ID branch
+    with the caller's value. Passing a hardcoded flag either way breaks a live production scenario.
+    """
+
+    CHAINS = {"100": [], "200": ["100"], "300": ["100", "200"]}
+
+    def _api(self, chains: dict[str, list[str]]) -> tuple[SynchronizingProcessor, Mock]:
+        processor, api = _processor(chains)
+        processor.ancestry = AncestryResolver(api)
+        processor._update_markdown = Mock()  # type: ignore[method-assign]
+        api.get_child_page_ids.return_value = []
+        return processor, api
+
+    def test_root_document_with_an_explicit_page_id_is_not_moved_under_itself(self) -> None:
+        """The live Cloud scenario: root Markdown carries an explicit page ID equal to the resolved root."""
+
+        processor, api = self._api(self.CHAINS)
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, "Root", "100")
+
+        node = DocumentNode(
+            absolute_path=Path("/docs/index.md"),
+            page_id="200",
+            space_key=None,
+            title=None,
+            synchronized=True,
+        )
+
+        processor._synchronize_subtree(node, ConfluencePageID("200"), "200", {}, is_root=True)
+
+        api.move_page.assert_not_called()
+
+    def test_child_document_mapping_to_its_parents_page_raises(self) -> None:
+        """A hardcoded `is_root=True` would silently let a child overwrite its parent's page."""
+
+        processor, api = self._api(self.CHAINS)
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, f"Page {page_id}", "100")
+
+        node = DocumentNode(
+            absolute_path=Path("/docs/a.md"),
+            page_id="200",
+            space_key=None,
+            title=None,
+            synchronized=True,
+        )
+
+        with self.assertRaises(PageCollisionError):
+            processor._synchronize_subtree(node, ConfluencePageID("200"), "200", {}, is_root=False)
+
+        api.move_page.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
