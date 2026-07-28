@@ -53,10 +53,14 @@ Using `real_id` as the boundary would therefore permit a poisoned explicit id po
 
 The boundary is established in two stages:
 
-1. **Root node:** validated against the `real_id` anchor, allowing equality (the root node may legitimately resolve to the anchor page itself).
+1. **Root node:** subjected to the **same containment check** against the `real_id` anchor — it must be the anchor or a descendant of it. Equality is permitted (the root node may legitimately resolve to the anchor page itself), but a foreign page is not.
 2. **All descendants:** validated against the root node's *resolved* `page.id`, threaded through `_synchronize_subtree` as an explicit parameter.
 
 When the root Markdown already identifies the `-r` page (branches :63-67 and :70-71), the anchor and the managed root coincide and the two stages agree.
+
+**Stage 1 is load-bearing, not a formality.** Without it the whole guard collapses. Two efforts each publishing their own `00-inception/` produce the identical root relative path `index.md`, hence the identical digest and the identical synthesized title (analysis §1.1). With `-r` given and no id in the root Markdown, Effort A's root node enters the title branch and can resolve to **Effort B's root page**. Effort A's managed root would then *become* Effort B's tree, and every subsequent descendant check would pass — publishing an entire effort inside another's tree while reporting no violation.
+
+Stage 1 prevents this because Effort B's root page is not a descendant of Effort A's `-r` anchor. This is the one place where the anchor is the correct boundary, and it is why the boundary must be two-stage rather than simply "the resolved root everywhere."
 
 ---
 
@@ -163,6 +167,7 @@ When `--allow-adopt` authorizes a boundary crossing, the adopted page **is** re-
 | 9 | Lookup scoping | Asserts the lookup received the **target parent's** `spaceId`; two same-titled pages in different spaces do not raise |
 | 10 | Root node resolving to the `-r` anchor itself | Adopted, no move, no error — containment is root-inclusive |
 | 11 | Two efforts sharing one `-r`; poisoned id points into the sibling effort | `PageCollisionError` — proves the boundary is the resolved root, not the anchor |
+| 11b | Two efforts with **separate** `-r`; Effort A's root node title-resolves to Effort B's root page | `PageCollisionError` at stage 1 — proves the root node is containment-checked against its anchor (§4.1). Without this the guard collapses entirely |
 | 12 | Root vs non-root id equality | Root skips re-parent; non-root **raises** |
 | 13 | Move target is a descendant of the page | Raises (cycle) |
 | 14 | `page_exists` >1 result | Raises with ids and statuses; 0 results returns `None` |
@@ -180,6 +185,10 @@ When `--allow-adopt` authorizes a boundary crossing, the adopted page **is** re-
 **Data Center re-parenting comes back to life.** md2conf has silently never re-parented on DC (analysis §2). Once B lands, drifted trees re-parent on the next publish — containment-checked first. Normal behavior with the existing INFO log per move; no phase-in flag, which would leave a real bug disabled by default.
 
 **Two public-API breaks:** `get_or_create_page` removed; `page_exists` raises on ambiguity.
+
+**A third break with no override — duplicate local page ids (§5.4).** Two documents carrying the same `confluence-page-id` currently "work": both publish, the second silently overwriting the first, and content sync updates one page twice. Under this design that becomes a hard error during indexing.
+
+This is the break most likely to hit an existing user, because `_update_markdown` writes ids automatically and a copy-pasted Markdown file carries the id with it. It deliberately gets **no `--allow-adopt`-style escape**: the two documents' content genuinely cannot both live at one page, so proceeding has no correct outcome — it only chooses a silent loser. The remedy is local and cheap (delete the duplicated comment from one file), and the error names both paths and the shared id so the fix is obvious. An override here would preserve exactly the silent-overwrite behavior this change exists to eliminate.
 
 ---
 
