@@ -222,5 +222,117 @@ class TestDescendantBoundary(unittest.TestCase):
         self.assertIn("(200)", str(context.exception))
 
 
+class TestReparentGuards(unittest.TestCase):
+    """
+    100 (anchor / -r)
+     └── 200
+          └── 300
+    """
+
+    CHAINS = {"100": [], "200": ["100"], "300": ["100", "200"]}
+
+    def _node(self, path: str) -> Mock:
+        node = Mock()
+        node.absolute_path = Path(path)
+        return node
+
+    def test_root_node_equal_to_its_parent_is_not_moved(self) -> None:
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+
+        processor._reparent_if_needed(self._node("/docs/index.md"), _properties("200", "Root", "100"), ConfluencePageID("200"), is_root=True)
+
+        api.move_page.assert_not_called()
+
+    def test_non_root_node_equal_to_its_parent_raises(self) -> None:
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+
+        with self.assertRaises(PageCollisionError):
+            processor._reparent_if_needed(self._node("/docs/a.md"), _properties("200", "Child", "100"), ConfluencePageID("200"), is_root=False)
+
+        api.move_page.assert_not_called()
+
+    def test_moving_a_page_under_its_own_descendant_raises(self) -> None:
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+
+        with self.assertRaises(PageCollisionError):
+            processor._reparent_if_needed(self._node("/docs/a.md"), _properties("200", "Parent", "100"), ConfluencePageID("300"), is_root=False)
+
+        api.move_page.assert_not_called()
+
+    def test_legitimate_move_invalidates_the_ancestor_cache(self) -> None:
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+        processor.ancestry.contains("100", "300")
+        calls_before = api.get_ancestor_ids.call_count
+
+        processor._reparent_if_needed(self._node("/docs/a.md"), _properties("300", "Child", "200"), ConfluencePageID("100"), is_root=False)
+
+        api.move_page.assert_called_once_with("300", "100")
+        processor.ancestry.contains("100", "300")
+        self.assertGreater(api.get_ancestor_ids.call_count, calls_before)
+
+    def test_page_already_under_its_intended_parent_is_not_moved(self) -> None:
+        """Without the early return, every unchanged page would incur a redundant move and cache flush."""
+
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+
+        processor._reparent_if_needed(self._node("/docs/a.md"), _properties("300", "Child", "200"), ConfluencePageID("200"), is_root=False)
+
+        api.move_page.assert_not_called()
+
+    def test_page_with_unknown_parent_is_still_moved_into_the_tree(self) -> None:
+        """A page adopted via `--allow-adopt` may report no parent, and must still be moved."""
+
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+
+        processor._reparent_if_needed(self._node("/docs/a.md"), _properties("300", "Child", None), ConfluencePageID("100"), is_root=False)
+
+        api.move_page.assert_called_once_with("300", "100")
+
+
+class TestTitleBranchReparentsEndToEnd(unittest.TestCase):
+    """
+    100 (anchor / -r)
+     └── 200 (managed root)
+          └── 300
+               └── 400 (title match, sitting under the wrong parent)
+    """
+
+    CHAINS = {"100": [], "200": ["100"], "300": ["100", "200"], "400": ["100", "200", "300"]}
+
+    def test_title_match_under_wrong_parent_is_moved(self) -> None:
+        """`_synchronize_subtree` must re-parent a page adopted by title match."""
+
+        processor, api = _processor(self.CHAINS)
+        processor.ancestry = AncestryResolver(api)
+        processor._update_markdown = Mock()  # type: ignore[method-assign]
+        api.get_page_properties.side_effect = lambda page_id: _properties(page_id, f"Page {page_id}", "300" if page_id == "400" else "100")
+        api.page_exists.return_value = "400"
+        api.get_page.return_value = _properties("400", "Child", "300")
+        api.get_child_page_ids.return_value = []
+
+        node = DocumentNode(
+            absolute_path=Path("/docs/child.md"),
+            page_id=None,
+            space_key=None,
+            title="Child",
+            synchronized=True,
+        )
+
+        processor._synchronize_subtree(node, ConfluencePageID("200"), "200", {}, is_root=False)
+
+        api.move_page.assert_called_once_with("400", "200")
+
+        # the ancestor cache must have been discarded, so a post-move question re-queries the API
+        calls_after_move = api.get_ancestor_ids.call_count
+        processor.ancestry.contains("200", "400")
+        self.assertGreater(api.get_ancestor_ids.call_count, calls_after_move)
+
+
 if __name__ == "__main__":
     unittest.main()

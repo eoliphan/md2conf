@@ -192,10 +192,36 @@ class SynchronizingProcessor(Processor):
         *,
         is_root: bool,
     ) -> None:
-        if page.parentId is not None and page.parentId != parent_id.page_id:
-            LOGGER.info("Moving page %s from parent %s to %s", page.id, page.parentId, parent_id.page_id)
-            self.api.move_page(page.id, parent_id.page_id)
-            self.ancestry.invalidate()
+        """
+        Moves a page under its intended parent, if it is not already there.
+
+        :param node: Document being published.
+        :param page: Properties of the Confluence page the document maps to.
+        :param parent_id: Confluence page ID the document's parent maps to.
+        :param is_root: Whether this is the root document, which is compared against itself.
+        """
+
+        if page.id == parent_id.page_id:
+            if is_root:
+                # the root document is its own parent by construction; nothing to move
+                return
+            raise PageCollisionError(
+                f"document {node.absolute_path} maps to Confluence page {page.id}, which is also the page of its parent document; "
+                f"two documents cannot map to the same Confluence page"
+            )
+
+        if page.parentId == parent_id.page_id:
+            return
+
+        if self.ancestry.contains(page.id, parent_id.page_id):
+            raise PageCollisionError(
+                f"refusing to move Confluence page {page.id} under {parent_id.page_id} for document {node.absolute_path}: "
+                f"the intended parent is a descendant of the page, so the move would create a cycle"
+            )
+
+        LOGGER.info("Moving page %s from parent %s to %s", page.id, page.parentId, parent_id.page_id)
+        self.api.move_page(page.id, parent_id.page_id)
+        self.ancestry.invalidate()
 
     @override
     def _synchronize_order(self, tree: DocumentNode, parent_to_children: dict[str, list[str]]) -> None:
