@@ -20,15 +20,28 @@
 - **Full unit suite:** `python -m unittest discover -s tests` — green before any commit.
 - **Static checks:** `./check.sh` (ruff + mypy strict over `md2conf`, `tests`, `integration_tests`). **It does not pass on `master`** — baseline is 82 mypy errors and 2 ruff errors. The bar is *no new errors versus that baseline*, not a clean exit.
 
-  **Verify both linters separately — they use different output formats and one grep cannot see both:**
+  **Two traps have already cost three bad measurements. Both must be avoided:**
 
-  ```bash
-  python -m ruff check          # baseline: "Found 2 errors."  — ruff never prints "error:"
-  python -m ruff format --check
-  python -m mypy md2conf tests  # baseline: 82 errors, each line containing "error:"
-  ```
+  1. **`rtk` condenses mypy output.** This environment wraps commands with `rtk`, which reformats mypy's output so error lines lose the `error:` prefix. `grep -c "error:"` then returns `0` on a file with real errors. **Always measure mypy via `rtk proxy`:**
 
-  Grepping `check.sh` output for `error:` catches mypy only and is **structurally blind to ruff** — an unused import will sail straight through it. Run `ruff check` on its own and compare the count.
+     ```bash
+     rtk proxy python -m mypy md2conf          # baseline: 25 errors
+     rtk proxy python -m mypy tests            # baseline: 32 errors
+     rtk proxy python -m mypy integration_tests # baseline: 27 errors
+     ```
+
+     Measure **per target**, as `check.sh` does — a single combined invocation deduplicates cross-referenced files and reports 34, which is not comparable to the per-target baseline of 84.
+
+  2. **Ruff output is not `error:`-shaped at all.** No grep for `error:` can ever see it. Run it standalone and read the count:
+
+     ```bash
+     python -m ruff check          # baseline: "Found 2 errors."
+     python -m ruff format --check
+     ```
+
+  To check your own file specifically: `rtk proxy python -m mypy <yourfile> 2>&1 | grep "<yourfile>"` must return nothing.
+
+  **Known suppression:** `transport: Mock = session.session` is a genuine `[assignment]` mismatch (`session.session` is typed `requests.Session`). It requires `# type: ignore[assignment]`. Use it on every such line.
 
   **mypy is strict** — annotate every helper; no bare `dict`, no `object` where a real type exists. Do not import a name "for a later task"; an unused import is a lint failure now.
 - **Test imports:** use `from tests.utility import ...`, not `from .utility import ...`. Relative imports break under `python -m unittest discover -s tests`, the canonical command.
