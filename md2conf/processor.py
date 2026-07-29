@@ -16,7 +16,7 @@ from typing import Iterable, Optional
 from .collection import ConfluencePageCollection, ConfluenceUserCollection
 from .converter import ConfluenceDocument
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
-from .environment import ArgumentError
+from .environment import ArgumentError, PageCollisionError
 from .kroki import KrokiServer
 from .matcher import DirectoryEntry, FileEntry, Matcher, MatcherOptions
 from .metadata import ConfluenceSiteMetadata
@@ -127,10 +127,33 @@ class Processor:
 
         self._process_items(root)
 
+    @staticmethod
+    def _assert_unique_page_ids(root: DocumentNode) -> None:
+        """
+        Verifies that no two documents claim the same Confluence page.
+
+        Two documents mapping to a single page would publish in sequence, the second silently overwriting
+        the first. There is no correct way to proceed, so this fails rather than choosing a silent loser.
+        """
+
+        seen: dict[str, Path] = {}
+        for node in root.all():
+            if node.page_id is None:
+                continue
+            previous = seen.get(node.page_id)
+            if previous is not None:
+                raise PageCollisionError(
+                    f"duplicate Confluence page ID {node.page_id} declared in both {previous} and {node.absolute_path}; "
+                    f"remove the 'confluence-page-id' comment from one of them"
+                )
+            seen[node.page_id] = node.absolute_path
+
     def _process_items(self, root: DocumentNode) -> None:
         """
         Processes a sub-tree rooted at an ancestor node.
         """
+
+        self._assert_unique_page_ids(root)
 
         # synchronize directory tree structure with page hierarchy in space (find matching pages in Confluence)
         parent_to_children = self._synchronize_structure(root)

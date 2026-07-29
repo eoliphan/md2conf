@@ -27,7 +27,7 @@ from requests.adapters import HTTPAdapter
 from strong_typing.core import JsonType
 from strong_typing.serialization import DeserializerOptions, json_dump_string, json_to_object, object_to_json
 
-from .environment import ArgumentError, ConfluenceConnectionProperties, ConfluenceError, PageError
+from .environment import ArgumentError, ConfluenceConnectionProperties, ConfluenceError, PageCollisionError, PageError
 from .extra import override
 from .metadata import ConfluenceSiteMetadata
 
@@ -71,6 +71,9 @@ def build_url(base_url: str, query: Optional[dict[str, str]] = None) -> str:
 
 
 LOGGER = logging.getLogger(__name__)
+
+ANCESTOR_DEPTH_LIMIT = 100
+"Maximum page hierarchy depth traversed when resolving ancestors; a stop against cyclic parent data."
 
 
 def _retry_request(
@@ -1130,7 +1133,7 @@ class ConfluenceSession:
         """
         Retrieves Confluence wiki page details and content using v1 API.
 
-        v1 API endpoint: GET /rest/api/content/{pageId}?expand=body.storage,version,space
+        v1 API endpoint: GET /rest/api/content/{pageId}?expand=body.storage,version,space,ancestors
 
         :param page_id: The Confluence page ID.
         :returns: Confluence page info and content.
@@ -1138,7 +1141,7 @@ class ConfluenceSession:
         from .api_mappers import map_page_v1_to_domain
 
         path = f"/content/{page_id}"
-        query = {"expand": "body.storage,version,space"}
+        query = {"expand": "body.storage,version,space,ancestors"}
         response = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
         return map_page_v1_to_domain(response)
 
@@ -1159,7 +1162,7 @@ class ConfluenceSession:
         """
         Retrieves Confluence wiki page details using v1 API.
 
-        v1 API endpoint: GET /rest/api/content/{pageId}?expand=version,space,history
+        v1 API endpoint: GET /rest/api/content/{pageId}?expand=version,space,history,ancestors
 
         :param page_id: The Confluence page ID.
         :returns: Confluence page info.
@@ -1167,7 +1170,7 @@ class ConfluenceSession:
         from .api_mappers import map_page_properties_v1_to_domain
 
         path = f"/content/{page_id}"
-        query = {"expand": "version,space,history"}
+        query = {"expand": "version,space,history,ancestors"}
         response = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
         return map_page_properties_v1_to_domain(response)
 
@@ -1193,6 +1196,44 @@ class ConfluenceSession:
         """
 
         return self.get_page_properties(page_id).version.number
+
+    def get_ancestor_ids(self, page_id: str) -> list[str]:
+        """
+        Retrieves the ancestors of a Confluence page, ordered outermost first.
+
+        The page itself is not included in the result.
+
+        :param page_id: The Confluence page ID.
+        :returns: Ancestor page IDs, from the topmost ancestor down to the immediate parent.
+        """
+        if self.api_version == ConfluenceVersion.VERSION_1:
+            return self._get_ancestor_ids_v1(page_id)
+        else:
+            return self._get_ancestor_ids_v2(page_id)
+
+    def _get_ancestor_ids_v1(self, page_id: str) -> list[str]:
+        "Retrieves ancestors using the v1 API, which returns the whole chain in a single response."
+
+        path = f"/content/{page_id}"
+        query = {"expand": "ancestors"}
+        response = self._get(ConfluenceVersion.VERSION_1, path, dict[str, JsonType], query=query)
+        ancestors = typing.cast(list[JsonType], response.get("ancestors", []))
+        return [str(typing.cast(dict[str, JsonType], item)["id"]) for item in ancestors]
+
+    def _get_ancestor_ids_v2(self, page_id: str) -> list[str]:
+        "Retrieves ancestors using the v2 API by walking up the parent chain."
+
+        ancestors: list[str] = []
+        current = page_id
+        for _ in range(ANCESTOR_DEPTH_LIMIT):
+            parent_id = self.get_page_properties(current).parentId
+            if parent_id is None:
+                ancestors.reverse()
+                return ancestors
+            ancestors.append(parent_id)
+            current = parent_id
+
+        raise ConfluenceError(f"ancestor chain for page {page_id} exceeds the depth limit of {ANCESTOR_DEPTH_LIMIT}; the page hierarchy may contain a cycle")
 
     def _get_users_v1(self, name: str) -> list["ConfluenceUser"]:
         """
@@ -1759,8 +1800,12 @@ class ConfluenceSession:
         if len(results) == 1:
             result = typing.cast(dict[str, JsonType], results[0])
             return str(result["id"])
-        else:
+        elif not results:
             return None
+        else:
+            items = [typing.cast(dict[str, JsonType], item) for item in results]
+            matches = ", ".join(f"{item['id']} (status: {item.get('status')})" for item in items)
+            raise PageCollisionError(f"ambiguous page lookup: {len(results)} pages in space {space_key} match the title {title!r}: {matches}")
 
     def page_exists(
         self,
@@ -1804,26 +1849,11 @@ class ConfluenceSession:
 
             if len(results) == 1:
                 return results[0].id
-            else:
+            elif not results:
                 return None
-
-    def get_or_create_page(self, title: str, parent_id: str) -> ConfluencePage:
-        """
-        Finds a page with the given title, or creates a new page if no such page exists.
-
-        :param title: Page title. Pages in the same Confluence space must have a unique title.
-        :param parent_id: Identifies the parent page for a new child page.
-        """
-
-        parent_page = self.get_page_properties(parent_id)
-        page_id = self.page_exists(title, space_id=parent_page.spaceId)
-
-        if page_id is not None:
-            LOGGER.debug("Retrieving existing page: %s", page_id)
-            return self.get_page(page_id)
-        else:
-            LOGGER.debug("Creating new page with title: %s", title)
-            return self.create_page(parent_id, title, "")
+            else:
+                matches = ", ".join(f"{item.id} (status: {item.status})" for item in results)
+                raise PageCollisionError(f"ambiguous page lookup: {len(results)} pages in space {space_id} match the title {title!r}: {matches}")
 
     def get_labels(self, page_id: str) -> list[ConfluenceIdentifiedLabel]:
         """

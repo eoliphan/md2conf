@@ -18,7 +18,33 @@
 - **Minimum Python: 3.9.** PEP 585 builtin generics (`list[str]`, `dict[str, str]`) are fine; `X | Y` unions are **not** — use `Optional[X]`.
 - **Tests use `unittest`**, never pytest. Single test: `python -m unittest tests.test_module.TestClass.test_name -v`.
 - **Full unit suite:** `python -m unittest discover -s tests` — green before any commit.
-- **Static checks:** `./check.sh` (ruff + mypy strict over `md2conf`, `tests`, `integration_tests`). Must pass before any commit. **mypy is strict** — annotate every helper; no bare `dict`, no `object` where a real type exists.
+- **Static checks:** `./check.sh` (ruff + mypy strict over `md2conf`, `tests`, `integration_tests`). **It does not pass on `master`** — baseline is 82 mypy errors and 2 ruff errors. The bar is *no new errors versus that baseline*, not a clean exit.
+
+  **Two traps have already cost three bad measurements. Both must be avoided:**
+
+  1. **`rtk` condenses mypy output.** This environment wraps commands with `rtk`, which reformats mypy's output so error lines lose the `error:` prefix. `grep -c "error:"` then returns `0` on a file with real errors. **Always measure mypy via `rtk proxy`:**
+
+     ```bash
+     rtk proxy python -m mypy md2conf          # baseline: 25 errors
+     rtk proxy python -m mypy tests            # baseline: 30 errors
+     rtk proxy python -m mypy integration_tests # baseline: 27 errors
+     ```
+
+     Measure **per target**, as `check.sh` does — a single combined invocation deduplicates cross-referenced files and reports 34, which is not comparable to the per-target baseline of 82.
+
+  2. **Ruff output is not `error:`-shaped at all.** No grep for `error:` can ever see it. Run it standalone and read the count:
+
+     ```bash
+     python -m ruff check          # baseline: "Found 2 errors."
+     python -m ruff format --check
+     ```
+
+  To check your own file specifically: `rtk proxy python -m mypy <yourfile> 2>&1 | grep "<yourfile>"` must return nothing.
+
+  **Known suppression:** `transport: Mock = session.session` is a genuine `[assignment]` mismatch (`session.session` is typed `requests.Session`). It requires `# type: ignore[assignment]`. Use it on every such line.
+
+  **mypy is strict** — annotate every helper; no bare `dict`, no `object` where a real type exists. Do not import a name "for a later task"; an unused import is a lint failure now.
+- **Test imports:** use `from tests.utility import ...`, not `from .utility import ...`. Relative imports break under `python -m unittest discover -s tests`, the canonical command.
 - **Line length 160.**
 - `LOGGER = logging.getLogger(__name__)` per module; `@override` from `md2conf/extra.py` on overrides; custom exceptions in `md2conf/environment.py`.
 - **Both deployment types** tested for anything touching the API, per CLAUDE.md.
@@ -202,7 +228,7 @@ def make_session(deployment_type: str) -> ConfluenceSession:
 In `tests/test_api_move.py`, delete the local `_make_session` (lines 19-37) and import the shared one:
 
 ```python
-from .utility import make_session as _make_session
+from tests.utility import make_session as _make_session
 ```
 
 - [ ] **Step 8: Run the full suite and static checks**
@@ -251,7 +277,7 @@ from unittest.mock import Mock
 
 import requests
 
-from .utility import make_session
+from tests.utility import make_session
 
 
 def _json_response(payload: dict[str, Any]) -> Mock:
@@ -517,7 +543,7 @@ import requests
 
 from md2conf.environment import PageCollisionError
 
-from .utility import make_session
+from tests.utility import make_session
 
 
 def _json_response(payload: dict[str, Any]) -> Mock:

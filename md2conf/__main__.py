@@ -58,6 +58,7 @@ class Arguments(argparse.Namespace):
     max_image_width: Optional[int]
     pass_through_languages: bool
     user_mentions: bool
+    allow_adopt: list[str]
 
 
 class KwargsAppendAction(argparse.Action):
@@ -358,6 +359,14 @@ def get_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Render email links as regular links instead of Confluence user mentions.",
     )
+    parser.add_argument(
+        "--allow-adopt",
+        dest="allow_adopt",
+        action="append",
+        metavar="PAGE_ID",
+        default=[],
+        help="Authorize adopting the Confluence page with this ID even though it lies outside the tree being published. Repeatable.",
+    )
     return parser
 
 
@@ -450,6 +459,7 @@ def main() -> None:
         max_image_width=args.max_image_width,
         pass_through_languages=args.pass_through_languages,
         user_mentions=args.user_mentions,
+        allow_adopt=frozenset(args.allow_adopt),
     )
 
     if args.local:

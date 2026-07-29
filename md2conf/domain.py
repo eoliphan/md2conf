@@ -44,6 +44,8 @@ class ConfluenceDocumentOptions:
         Confluence. When false, unsupported languages are replaced with 'none'.
     :param user_mentions: When true, convert email-link syntax (@[User Name](mailto:email@example.com)) to
         Confluence user mentions; when false, render as regular links.
+    :param allow_adopt: Confluence page IDs that may be adopted even though they fall outside the tree being
+        published. Each ID must be authorized explicitly.
     """
 
     ignore_invalid_url: bool = False
@@ -65,3 +67,4 @@ class ConfluenceDocumentOptions:
     max_image_width: Optional[int] = None
     pass_through_languages: bool = False
     user_mentions: bool = True
+    allow_adopt: frozenset[str] = frozenset()

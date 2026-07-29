@@ -10,12 +10,15 @@ import logging
 import shutil
 import unittest
 from pathlib import Path
+from typing import Optional
 from unittest.mock import patch
 
 from md2conf.domain import ConfluenceDocumentOptions, ConfluencePageID
+from md2conf.environment import PageCollisionError
 from md2conf.extra import override
 from md2conf.local import LocalConverter, LocalProcessor
 from md2conf.metadata import ConfluenceSiteMetadata
+from md2conf.processor import DocumentNode, Processor
 from tests.utility import TypedTestCase
 
 logging.basicConfig(
@@ -108,6 +111,45 @@ class TestProcessor(TypedTestCase):
             "</ac:structured-macro>"
         )
         self.assertStartsWith(content, generated_by_html)
+
+
+class TestDuplicatePageIds(unittest.TestCase):
+    @staticmethod
+    def _node(path: str, page_id: Optional[str]) -> DocumentNode:
+        return DocumentNode(
+            absolute_path=Path(path),
+            page_id=page_id,
+            space_key=None,
+            title=None,
+            synchronized=True,
+            users=set(),
+        )
+
+    def test_duplicate_page_ids_are_rejected(self) -> None:
+        root = self._node("/docs/index.md", "100")
+        root.add_child(self._node("/docs/a.md", "200"))
+        root.add_child(self._node("/docs/b.md", "200"))
+
+        with self.assertRaises(PageCollisionError) as context:
+            Processor._assert_unique_page_ids(root)
+
+        message = str(context.exception)
+        self.assertIn("200", message)
+        self.assertIn("a.md", message)
+        self.assertIn("b.md", message)
+
+    def test_distinct_page_ids_are_accepted(self) -> None:
+        root = self._node("/docs/index.md", "100")
+        root.add_child(self._node("/docs/a.md", "200"))
+
+        Processor._assert_unique_page_ids(root)  # must not raise
+
+    def test_documents_without_ids_are_ignored(self) -> None:
+        root = self._node("/docs/index.md", None)
+        root.add_child(self._node("/docs/a.md", None))
+        root.add_child(self._node("/docs/b.md", None))
+
+        Processor._assert_unique_page_ids(root)  # must not raise
 
 
 if __name__ == "__main__":

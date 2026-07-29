@@ -10,12 +10,13 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .api import ConfluenceContentProperty, ConfluenceLabel, ConfluenceSession, ConfluenceStatus
+from .ancestry import AncestryResolver
+from .api import ConfluenceContentProperty, ConfluenceLabel, ConfluencePageProperties, ConfluenceSession, ConfluenceStatus
 from .collection import ConfluenceUserCollection
 from .converter import ConfluenceDocument, attachment_name, get_volatile_attributes, get_volatile_elements
 from .csf import AC_ATTR, elements_from_string
 from .domain import ConfluenceDocumentOptions, ConfluencePageID
-from .environment import PageError
+from .environment import PageCollisionError, PageError
 from .extra import override, path_relative_to
 from .kroki import KrokiServer
 from .metadata import ConfluencePageMetadata
@@ -31,6 +32,7 @@ class SynchronizingProcessor(Processor):
     """
 
     api: ConfluenceSession
+    ancestry: AncestryResolver
 
     def __init__(self, api: ConfluenceSession, options: ConfluenceDocumentOptions, root_dir: Path, kroki_server: Optional[KrokiServer] = None) -> None:
         """
@@ -44,6 +46,38 @@ class SynchronizingProcessor(Processor):
 
         super().__init__(options, api.site, root_dir, kroki_server=kroki_server)
         self.api = api
+
+    def _assert_owned(self, page_id: str, page_title: str, managed_root_id: str, source_path: Path) -> None:
+        """
+        Verifies that a page found by lookup belongs to the tree being published.
+
+        :param page_id: Confluence page ID the lookup resolved to.
+        :param page_title: Title of that page, for diagnostics.
+        :param managed_root_id: Confluence page ID bounding the tree being published.
+        :param source_path: Markdown document whose publication triggered the lookup.
+        """
+
+        if page_id in self.options.allow_adopt:
+            LOGGER.warning(
+                "Adopting page %s ('%s') outside the tree rooted at %s, authorized by --allow-adopt",
+                page_id,
+                page_title,
+                managed_root_id,
+            )
+            return
+
+        if self.ancestry.contains(managed_root_id, page_id):
+            return
+
+        ancestors = self.ancestry.ancestors(page_id) or ["<none>"]
+        raise PageCollisionError(
+            f"refusing to publish {source_path} to Confluence page {page_id} ('{page_title}'): "
+            f"the page is not the root of the tree being published ({managed_root_id}) nor a descendant of it; "
+            f"its ancestors are {' > '.join(ancestors)}. "
+            f"This usually means another effort owns the page. "
+            f"Set an explicit 'title:' in the document's front matter, or publish under a different -r root page. "
+            f"Only if you genuinely intend to take over a page owned by another effort, re-run with --allow-adopt {page_id}"
+        )
 
     @override
     def _synchronize_structure(self, root: DocumentNode) -> dict[str, list[str]]:
@@ -68,40 +102,36 @@ class SynchronizingProcessor(Processor):
         elif root_id is not None:
             real_id = root_id
         elif root.page_id is not None:
+            LOGGER.warning(
+                "No -r root page was given; the root page ID is taken from %s and cannot be independently validated. "
+                "When several projects publish into one Confluence space, pass -r so ownership can be enforced.",
+                root.absolute_path,
+            )
             real_id = ConfluencePageID(root.page_id)
         else:
             raise NotImplementedError("condition not exhaustive")
 
         parent_to_children: dict[str, list[str]] = {}
-        self._synchronize_subtree(root, real_id, parent_to_children)
+        self.ancestry = AncestryResolver(self.api)
+        self._synchronize_subtree(root, real_id, real_id.page_id, parent_to_children, is_root=True)
         return parent_to_children
 
     def _synchronize_subtree(
         self,
         node: DocumentNode,
         parent_id: ConfluencePageID,
+        managed_root_id: str,
         parent_to_children: dict[str, list[str]],
+        *,
+        is_root: bool = False,
     ) -> None:
+        page: ConfluencePageProperties
+
         if node.page_id is not None:
-            # verify if page exists
+            # verify the page exists, and that it belongs to the tree being published
             page = self.api.get_page_properties(node.page_id)
-
-            # check if page needs re-parenting
-            if page.parentId is not None and page.parentId != parent_id.page_id:
-                LOGGER.info(
-                    "Moving page %s from parent %s to %s",
-                    node.page_id,
-                    page.parentId,
-                    parent_id.page_id,
-                )
-                self.api.move_page(node.page_id, parent_id.page_id)
-            else:
-                LOGGER.debug(
-                    "Page %s already under correct parent %s",
-                    node.page_id,
-                    parent_id.page_id,
-                )
-
+            self._assert_owned(page.id, page.title, managed_root_id, node.absolute_path)
+            self._reparent_if_needed(node, page, parent_id, is_root=is_root)
             update = False
         else:
             if node.title is not None:
@@ -112,12 +142,24 @@ class SynchronizingProcessor(Processor):
                 digest = self._generate_hash(node.absolute_path)
                 title = f"{node.absolute_path.stem} [{digest}]"
 
-            # look up page by (possibly auto-generated) title
-            page = self.api.get_or_create_page(title, parent_id.page_id)
+            # on v2 the space is derived from the parent; on v1 page_exists uses the session space key
+            parent_page = self.api.get_page_properties(parent_id.page_id)
+            found_id = self.api.page_exists(title, space_id=parent_page.spaceId)
 
-            if page.status is ConfluenceStatus.ARCHIVED:
-                # user has archived a page with this (auto-generated) title
-                raise PageError(f"unable to update archived page with ID {page.id}")
+            if found_id is not None:
+                properties = self.api.get_page_properties(found_id)
+                self._assert_owned(found_id, properties.title, managed_root_id, node.absolute_path)
+
+                found_page = self.api.get_page(found_id)
+                if found_page.status is ConfluenceStatus.ARCHIVED:
+                    # user has archived a page with this (auto-generated) title
+                    raise PageError(f"unable to update archived page with ID {found_page.id}")
+
+                self._reparent_if_needed(node, properties, parent_id, is_root=is_root)
+                page = found_page
+            else:
+                LOGGER.debug("Creating new page with title: %s", title)
+                page = self.api.create_page(parent_id.page_id, title, "")
 
             update = True
 
@@ -142,8 +184,49 @@ class SynchronizingProcessor(Processor):
         child_ids = self.api.get_child_page_ids(page.id)
         parent_to_children[page.id] = child_ids
 
+        # descendants are bounded by the root document's resolved page, not by the -r anchor
+        child_root_id = page.id if is_root else managed_root_id
         for child_node in node.children():
-            self._synchronize_subtree(child_node, ConfluencePageID(page.id), parent_to_children)
+            self._synchronize_subtree(child_node, ConfluencePageID(page.id), child_root_id, parent_to_children)
+
+    def _reparent_if_needed(
+        self,
+        node: DocumentNode,
+        page: ConfluencePageProperties,
+        parent_id: ConfluencePageID,
+        *,
+        is_root: bool,
+    ) -> None:
+        """
+        Moves a page under its intended parent, if it is not already there.
+
+        :param node: Document being published.
+        :param page: Properties of the Confluence page the document maps to.
+        :param parent_id: Confluence page ID the document's parent maps to.
+        :param is_root: Whether this is the root document, which is compared against itself.
+        """
+
+        if page.id == parent_id.page_id:
+            if is_root:
+                # the root document is its own parent by construction; nothing to move
+                return
+            raise PageCollisionError(
+                f"document {node.absolute_path} maps to Confluence page {page.id}, which is also the page of its parent document; "
+                f"two documents cannot map to the same Confluence page"
+            )
+
+        if page.parentId == parent_id.page_id:
+            return
+
+        if self.ancestry.contains(page.id, parent_id.page_id):
+            raise PageCollisionError(
+                f"refusing to move Confluence page {page.id} under {parent_id.page_id} for document {node.absolute_path}: "
+                f"the intended parent is a descendant of the page, so the move would create a cycle"
+            )
+
+        LOGGER.info("Moving page %s from parent %s to %s", page.id, page.parentId, parent_id.page_id)
+        self.api.move_page(page.id, parent_id.page_id)
+        self.ancestry.invalidate()
 
     @override
     def _synchronize_order(self, tree: DocumentNode, parent_to_children: dict[str, list[str]]) -> None:
